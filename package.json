@@ -1,0 +1,37 @@
+{
+  "name": "h264-interp-utils",
+  "version": "0.0.1",
+  "description": "H.264 data streams are tricky to interpret. This Javascript package helps.",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OllieJones/h264-interp-utils.git"
+  },
+  "keywords": [
+    "h264",
+    "AVC",
+    "video",
+    "codec",
+    "bitstream",
+    "Golomb",
+    "VLC",
+    "CAVLC",
+    "NALU",
+    "SPS",
+    "PPS",
+    "avcC",
+    "WebCodecs"
+  ],
+  "author": "Oliver Jones <olliejones@gmail.com> (https://plumislandmedia.net/)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/OllieJones/h264-interp-utils/issues"
+  },
+  "homepage": "https://github.com/OllieJones/h264-interp-utils#readme",
+  "devDependencies": {
+    "jest": "^26.6.3"
+  }
+}
