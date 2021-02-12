@@ -1,18 +1,281 @@
 'use static'
 
-/*
-00051 //AVC Profile IDC definitions
-00052 #define BASELINE         66
-00053 #define MAIN             77
-00054 #define EXTENDED         88
-00055 #define FREXT_HP        100
-00056 #define FREXT_Hi10P     110
-00057 #define FREXT_Hi422     122
-00058 #define FREXT_Hi444     244
-00059 #define FREXT_CAVLC444   44
- */
+profileNames = {
+  66: 'BASELINE',
+  77: 'MAIN',
+  88: 'EXTENDED',
+  100: 'FREXT_HP',
+  110: 'FREXT_Hi10P',
+  122: 'FREXT_Hi422',
+  244: 'FREXT_Hi444',
+  44: 'FREXT_CAVLC444'
+}
 
-// noinspection JSUnusedLocalSymbols,JSUnusedGlobalSymbols
+class SPS {
+  constructor (SPS) {
+    const bitstream = new Bitstream(SPS)
+
+    const forbidden_zero_bit = bitstream.u_1()
+    if (forbidden_zero_bit) throw new Error('NALU error: invalid NALU header')
+    this.nal_ref_id = bitstream.u_2()
+    this.nal_unit_type = bitstream.u(5)
+    if (this.nal_unit_type !== 7) throw new Error('SPS error: not SPS')
+
+    this.profile_idc = bitstream.u_8()
+    if (profileNames[this.profile_idc]) {
+      this.profileName = profileNames[this.profile_idc]
+    } else {
+      throw new Error('SPS error: invalid profile_idc')
+    }
+
+    this.constraint_set0_flag = bitstream.u_1()
+    this.constraint_set1_flag = bitstream.u_1()
+    this.constraint_set2_flag = bitstream.u_1()
+    this.constraint_set3_flag = bitstream.u_1()
+    this.constraint_set4_flag = bitstream.u_1()
+    this.constraint_set5_flag = bitstream.u_1()
+    const reserved_zero_2bits = bitstream.u_2()
+    if (reserved_zero_2bits !== 0)
+      throw new Error('SPS error: reserved_zero_2bits must be zero')
+
+    this.level_idc = bitstream.u_8()
+
+    this.seq_parameter_set_id = bitstream.ue_v()
+    if (this.seq_parameter_set_id > 31)
+      throw new Error('SPS error: seq_parameter_set_id must be 31 or less')
+
+    this.has_no_chroma_format_idc =
+      (this.profile_idc === 66 || this.profile_idc === 77 || this.profile_idc === 88)
+
+    if (!this.has_no_chroma_format_idc) {
+      this.chroma_format_idc = bitstream.ue_v()
+      if (this.bit_depth_luma_minus8 > 3)
+        throw new Error('SPS error: chroma_format_idc must be 3 or less')
+      if (this.chroma_format_idc === 3) {  /* 3 = YUV444 */
+        this.separate_colour_plane_flag = bitstream.u_1()
+        this.chromaArrayType = this.separate_colour_plane_flag ? 0 : this.chroma_format_idc
+      }
+      this.bit_depth_luma_minus8 = bitstream.ue_v()
+      if (this.bit_depth_luma_minus8 > 6)
+        throw new Error('SPS error: bit_depth_luma_minus8 must be 6 or less')
+      this.bitDepthLuma = this.bit_depth_luma_minus8 + 8
+      this.bit_depth_chroma_minus8 = bitstream.ue_v()
+      if (this.bit_depth_chroma_minus8 > 6)
+        throw new Error('SPS error: bit_depth_chroma_minus8 must be 6 or less')
+      this.lossless_qpprime_flag = bitstream.u_1()
+      this.bitDepthChroma = this.bit_depth_chroma_minus8 + 8
+      this.seq_scaling_matrix_present_flag = bitstream.u_1()
+      if (this.seq_scaling_matrix_present_flag) {
+        const n_ScalingList = (this.chroma_format_idc !== 3) ? 8 : 12
+        this.seq_scaling_list_present_flag = []
+        this.seq_scaling_list = []
+        for (let i = 0; i < n_ScalingList; i++) {
+          const seqScalingListPresentFlag = bitstream.u_1()
+          this.seq_scaling_list_present_flag.push(seqScalingListPresentFlag)
+          if (seqScalingListPresentFlag) {
+            const sizeOfScalingList = i < 6 ? 16 : 64
+            let nextScale = 8
+            let lastScale = 8
+            const delta_scale = []
+            for (let j = 0; j < sizeOfScalingList; j++) {
+              if (nextScale !== 0) {
+                const deltaScale = bitstream.se_v()
+                delta_scale.push(deltaScale)
+                nextScale = (lastScale + delta_scale + 256) % 256
+              }
+              lastScale = (nextScale === 0) ? lastScale : nextScale
+              this.seq_scaling_list.push(delta_scale)
+            }
+          }
+        }
+      }
+    }
+
+    this.log2_max_frame_num_minus4 = bitstream.ue_v()
+    if (this.log2_max_frame_num_minus4 > 12)
+      throw new Error('SPS error: log2_max_frame_num_minus4 must be 12 or less')
+    this.maxFrameNum = 1 << (this.log2_max_frame_num_minus4 + 4)
+
+    this.pic_order_cnt_type = bitstream.ue_v()
+    if (this.pic_order_cnt_type > 2)
+      throw new Error('SPS error: pic_order_cnt_type must be 2 or less')
+
+    switch (this.pic_order_cnt_type) {
+      case 0:
+        this.log2_max_pic_order_cnt_lsb_minus4 = bitstream.ue_v()
+        if (this.log2_max_pic_order_cnt_lsb_minus4 > 12)
+          throw new Error('SPS error: log2_max_pic_order_cnt_lsb_minus4 must be 12 or less')
+        this.maxPicOrderCntLsb = 1 << (this.log2_max_pic_order_cnt_lsb_minus4 + 4)
+        break
+      case 1:
+        this.delta_pic_order_always_zero_flag = bitstream.u_1()
+        this.offset_for_non_ref_pic = bitstream.se_v()
+        this.offset_for_top_to_bottom_field = bitstream.se_v()
+        let expectedDeltaPerPicOrderCntCycle = 0
+        this.num_ref_frames_in_pic_order_cnt_cycle = bitstream.ue_v()
+        this.offset_for_ref_frame = []
+        for (let i = 0; i < this.num_ref_frames_in_pic_order_cnt_cycle; i++) {
+          const offsetForRefFrame = bitstream.se_v()
+          this.offset_for_ref_frame.push(offsetForRefFrame)
+          expectedDeltaPerPicOrderCntCycle += offsetForRefFrame
+        }
+        break
+      case 2:
+        /* there is nothing for case 2 */
+        break
+    }
+
+    this.max_num_ref_frames = bitstream.ue_v()
+    this.gaps_in_frame_num_value_allowed_flag = bitstream.u_1()
+    this.pic_width_in_mbs_minus_1 = bitstream.ue_v()
+    this.picWidth = (this.pic_width_in_mbs_minus_1 + 1) << 4
+    this.pic_height_in_map_units_minus_1 = bitstream.ue_v()
+    this.frame_mbs_only_flag = bitstream.u_1()
+    this.interlaced = !this.frame_mbs_only_flag
+    if (this.frame_mbs_only_flag === 0) { /* 1 if frames rather than fields (no interlacing) */
+      this.mb_adaptive_frame_field_flag = bitstream.u_1()
+    }
+    this.picHeight = ((2 - this.frame_mbs_only_flag) * (this.pic_height_in_map_units_minus_1 + 1)) << 4
+
+    this.direct_8x8_inference_flag = bitstream.u_1()
+    this.frame_cropping_flag = bitstream.u_1()
+    if (this.frame_cropping_flag) {
+      this.frame_cropping_rect_left_offset = bitstream.ue_v()
+      this.frame_cropping_rect_right_offset = bitstream.ue_v()
+      this.frame_cropping_rect_top_offset = bitstream.ue_v()
+      this.frame_cropping_rect_bottom_offset = bitstream.ue_v()
+      this.cropRect = {
+        x: this.frame_cropping_rect_left_offset,
+        y: this.frame_cropping_rect_top_offset,
+        width: this.picWidth - (this.frame_cropping_rect_left_offset + this.frame_cropping_rect_right_offset),
+        height: this.picHeight - (this.frame_cropping_rect_top_offset + this.frame_cropping_rect_bottom_offset)
+      }
+    } else {
+      this.cropRect = {
+        x: 0,
+        y: 0,
+        width: this.picWidth,
+        height: this.picHeight
+      }
+    }
+    this.vui_parameters_present_flag = bitstream.u_1()
+    this.success = true
+
+  }
+
+  get profile_compatibility () {
+    let v = this.constraint_set0_flag << 7
+    v |= this.constraint_set1_flag << 6
+    v |= this.constraint_set2_flag << 5
+    v |= this.constraint_set3_flag << 4
+    v |= this.constraint_set4_flag << 3
+    v |= this.constraint_set5_flag << 1
+    return v
+  }
+
+  /**
+   * getter for the MIME type encoded in this avcC
+   * @returns {string}
+   */
+  get MIME () {
+    const f = []
+    f.push('avc1.')
+    f.push(AvcC.byte2hex(this.profile_idc).toUpperCase())
+    f.push(AvcC.byte2hex(this.profile_compatibility).toUpperCase())
+    f.push(AvcC.byte2hex(this.level_idc).toUpperCase())
+    return f.join('')
+  }
+}
+
+class PPS {
+
+  constructor (NALU) {
+    const bitstream = new Bitstream(NALU)
+
+    const forbidden_zero_bit = bitstream.u_1()
+    if (forbidden_zero_bit) throw new Error('NALU error: invalid NALU header')
+    this.nal_ref_id = bitstream.u_2()
+    this.nal_unit_type = bitstream.u(5)
+    if (this.nal_unit_type !== 8) throw new Error('PPS error: not PPS')
+    this.pic_parameter_set_id = bitstream.ue_v()
+    this.seq_parameter_set_id = bitstream.ue_v()
+    this.entropy_coding_mode_flag = bitstream.u_1()
+    this.entropyCodingMode = this.entropy_coding_mode_flag ? 'CABAC' : 'CAVLC'
+    this.bottom_field_pic_order_in_frame_present_flag = bitstream.u_1()
+    this.num_slice_groups_minus1 = bitstream.ue_v()
+    this.numSliceGroups = this.num_slice_groups_minus1 + 1
+    if (this.num_slice_groups_minus1 > 0) {
+      this.slice_group_map_type = bitstream.ue_v()
+      switch (this.slice_group_map_type) {
+        case 0:
+          this.run_length_minus1 = []
+          for (let i = 0; i <= this.num_slice_groups_minus1; i++) {
+            this.run_length_minus1.push(bitstream.ue_v())
+          }
+          break
+        case 1:  /* there is no case 1 */
+          break
+        case 2:
+          this.top_left = []
+          this.bottom_right = []
+          for (let i = 0; i <= this.num_slice_groups_minus1; i++) {
+            const topLeft = bitstream.ue_v()
+            const bottomRight = bitstream.ue_v()
+            if (topLeft > bottomRight)
+              throw new Error('PPS error: bottom_right less than top_left when slice_group_map is 2')
+            this.top_left.push(topLeft)
+            this.bottom_right.push(bottomRight)
+          }
+          break
+        case 3:
+        case 4:
+        case 5:
+          if (this.num_slice_groups_minus1 !== 1)
+            throw new Error('PPS error: num_slice_groups_minus1 must be 1 when slice_group_map is 3,4,5')
+          this.slice_group_change_direction_flag = bitstream.u_1()
+          this.slice_group_change_rate_minus1 = bitstream.ue_v()
+          break
+        case 6:
+          if (this.num_slice_groups_minus1 + 1 > 4) {
+            this.numberBitsPerSliceGroupId = 3
+          } else if (this.num_slice_groups_minus1 + 1 > 2) {
+            this.numberBitsPerSliceGroupId = 2
+          } else {
+            this.numberBitsPerSliceGroupId = 1
+          }
+          this.pic_size_in_map_units_minus1 = bitstream.ue_v()
+          this.slice_group_id = []
+          for (let i = 0; i <= this.pic_size_in_map_units_minus1; i++) {
+            const sliceGroupId = bitstream.u(this.numberBitsPerSliceGroupId)
+            if (sliceGroupId > this.num_slice_groups_minus1)
+              throw new Error('PPS error: slice_group_id must not be greater than num_slice_groups_minus1 when slice_group_map is 6')
+            this.slice_group_id.push(sliceGroupId)
+          }
+          break
+      }
+    }
+    this.num_ref_idx_l0_active_minus1 = bitstream.ue_v()
+    if (this.num_ref_idx_l0_active_minus1 > 31)
+      throw new Error('PPS error: num_ref_idx_l0_active_minus1 may not be greater than 31')
+    this.num_ref_idx_l1_active_minus1 = bitstream.ue_v()
+    if (this.num_ref_idx_l1_active_minus1 > 31)
+      throw new Error('PPS error: num_ref_idx_l1_active_minus1 may not be greater than 31')
+    this.weighted_pred_flag = bitstream.u_1()
+    this.weighted_bipred_idc = bitstream.u_2()
+    this.pic_init_qp_minus26 = bitstream.se_v()
+    if (this.pic_init_qp_minus26 > 25)
+      throw new Error('PPS error: pic_init_qp_minus26 may not be greater than 25')
+    this.pic_init_qs_minus26 = bitstream.se_v()
+    if (this.pic_init_qs_minus26 > 25)
+      throw new Error('PPS error: pic_init_qs_minus26 may not be greater than 25')
+    this.deblocking_filter_control_present_flag = bitstream.u_1()
+    this.constrained_intra_pred_flag = bitstream.u_1()
+    this.redundant_pic_cnt_present_flag = bitstream.u_1()
+
+    this.success = true
+  }
+}
+
 /**
  * Tools for handling H.264 bitstream issues.
  */
@@ -87,7 +350,7 @@ class Bitstream {
    * @returns {number}
    */
   u_1 () {
-    if (this.ptr + 1 >= this.max) throw new Error('bitstream exhausted')
+    if (this.ptr + 1 >= this.max) throw new Error('NALUStream error: bitstream exhausted')
     const p = (this.ptr >> 3)
     const o = 0x07 - (this.ptr & 0x07)
     const val = (this.buffer[p] >> o) & 0x01
@@ -117,7 +380,7 @@ class Bitstream {
    * @returns {number}
    */
   u (n) {
-    if (this.ptr + n >= this.max) throw new Error('bitstream exhausted')
+    if (this.ptr + n >= this.max) throw new Error('NALUStream error: bitstream exhausted')
     let val = 0
     for (let i = 0; i < n; i++) {
       val = (val << 1) | this.u_1()
@@ -130,7 +393,7 @@ class Bitstream {
    * @returns {number}
    */
   u_8 () {
-    if (this.ptr + 8 >= this.max) throw new Error('bitstream exhausted')
+    if (this.ptr + 8 >= this.max) throw new Error('NALUStream error: bitstream exhausted')
     if ((this.ptr & 0x07) === 0) {
       const val = this.buffer[(this.ptr >> 3)]
       this.ptr += 8
@@ -214,7 +477,7 @@ class AvcC {
         }
         if (this.pps.length > 0 && this.sps.length > 0) return
       }
-      if (this.strict) throw new Error('Bitstream needs both sps and pps')
+      if (this.strict) throw new Error('avcC error: bitstream must contain both SPS and PPS')
     }
     /* construct avcC from sps and pps */
     else if (options.sps && options.pps) {
@@ -230,6 +493,12 @@ class AvcC {
       this.#parseAvcC(options.avcC)
 
     }
+    if (profileNames[this.profileIndication]) {
+      this.profileName = profileNames[this.profileIndication]
+    } else {
+      throw new Error('avcC error: invalid profileIndication')
+    }
+
   }
 
   /**
@@ -270,11 +539,11 @@ class AvcC {
   #parseAvcC (inbuff) {
     const buf = new Uint8Array(inbuff, 0, inbuff.byteLength)
     const buflen = buf.byteLength
-    if (buflen < 10) throw new Error('avcC object too short')
+    if (buflen < 10) throw new Error('avcC error: object too short')
     let ptr = 0
     this.configurationVersion = buf[ptr++]
     if (this.strict && this.configurationVersion !== 1)
-      throw new Error(`configuration version must be 1: ${this.configurationVersion}`)
+      throw new Error(`avcC error: configuration version must be 1: ${this.configurationVersion}`)
     this.profileIndication = buf[ptr++]
     this.profileCompatibility = buf[ptr++]
     this.avcLevelIndication = buf[ptr++]
@@ -291,7 +560,7 @@ class AvcC {
   #captureNALUs (buf, ptr, count, nalus) {
     nalus.length = 0
     if (this.strict && count <= 0)
-      throw new Error(`at least one NALU is required`)
+      throw new Error(`avcC error: at least one NALU is required`)
     try {
       for (let i = 0; i < count; i++) {
         const len = AvcC.readUInt16BE(buf, ptr)
@@ -307,52 +576,19 @@ class AvcC {
 
   }
 
-  #unpackSps (sps) {
-    let p = 0
-    let b = sps[p++]
-    const forbidden_zero_bit = Boolean(b & 0x80)
-    const nal_ref_idc = (b & 0x60) >> 5
-    const nal_unit_type = (b & 0x1f)
-    if (this.strict) {
-      if (nal_unit_type !== 7) throw new Error('NALU not SPS')
-      if (forbidden_zero_bit) throw new Error('NALU forbidden_zero_bit is nonzero')
-    }
-    b = sps[p++]
-    const profile_idc = b
-    b = sps[p++]
-    const profile_compatibility = b
-    const constraint_set0_flag = Boolean(b & 0x80)
-    const constraint_set1_flag = Boolean(b & 0x40)
-    const constraint_set2_flag = Boolean(b & 0x20)
-    const constraint_set3_flag = Boolean(b & 0x10)
-    const constraint_set4_flag = Boolean(b & 0x08)
-    const constraint_set5_flag = Boolean(b & 0x04)
-    const reserved_zero_2bits = b & 0x03
-    if (this.strict) {
-      if (reserved_zero_2bits !== 0) throw new Error('reserved_zero_2bits is not zero')
-    }
-    b = sps[p++]
-    const level_idc = b
-    this.profileIndication = profile_idc
-    this.profileCompatibility = profile_compatibility
-    this.avcLevelIndication = level_idc
-
-    /* TODO a whole mess of other variable-length-coded exp-Golomb stuff. */
+  #unpackSps (spsData) {
+    const sps = new SPS(spsData)
+    this.profileIndication = sps.profile_idc
+    this.profileCompatibility = sps.profile_compatibility
+    this.avcLevelIndication = sps.level_idc
+    this.cropRect = sps.cropRect
     return sps
   }
 
-  #unpackPps (pps) {
-    let p = 0
-    let b = 0
-    b = pps[p++]
-    const forbidden_zero_bit = Boolean(b & 0x80)
-    const nal_ref_idc = (b & 0x60) >> 5
-    const nal_unit_type = (b & 0x1f)
-    if (this.strict) {
-      if (nal_unit_type !== 8) throw new Error('NALU not PPS')
-      if (forbidden_zero_bit) throw new Error('NALU forbidden_zero_bit is nonzero')
-    }
-    return pps
+  #unpackPps (ppsData) {
+    const pps = new PPS(ppsData)
+    this.interlaced = pps.interlaced
+    this.cropRect = pps.croprect
   }
 
   /**
@@ -372,7 +608,7 @@ class AvcC {
     buf[p++] = this.profileCompatibility
     buf[p++] = this.avcLevelIndication
     if (this.strict && (this.boxSizeMinusOne < 0 || this.boxSizeMinusOne > 3))
-      throw new Error('bad boxSizeMinusOne value: ' + this.boxSizeMinusOne)
+      throw new Error('avcC error: bad boxSizeMinusOne value: ' + this.boxSizeMinusOne)
     buf[p++] = (0xfc | (0x03 & this.boxSizeMinusOne))
     p = AvcC.#appendNALUs(buf, p, this.sps, 0x1f)
     p = AvcC.#appendNALUs(buf, p, this.pps, 0xff)
@@ -391,13 +627,13 @@ class AvcC {
   static #appendNALUs (buf, p, nalus, mask) {
     const setBits = ~mask
     if (this.strict && (nalus.length <= 0 || nalus.length > mask))
-      throw new Error('too many or not enough NALUs: ' + nalus.length)
+      throw new Error('avcC error: too many or not enough NALUs: ' + nalus.length)
     buf[p++] = (setBits | (nalus.length & mask))
     for (let nalui = 0; nalui < nalus.length; nalui++) {
       const nalu = nalus[nalui]
       const len = nalu.byteLength
       if (this.strict && (len <= 0 || len > 0xffff))
-        throw new Error('NALU has wrong length: ' + len)
+        throw new Error('avcC error: NALU has wrong length: ' + len)
       buf[p++] = 0xff & (len >> 8)
       buf[p++] = 0xff & len
       buf.set(nalu, p)
@@ -457,11 +693,11 @@ class NALUStream {
       if (options.boxSize) this.boxSize = options.boxSize
       if (options.type) this.type = options.type
       if (this.type && !NALUStream.#validTypes.has(this.type))
-        throw new Error('incorrect NALUStream type')
+        throw new Error('NALUStream error: type must be packet or annexB')
     }
 
-    if (this.strict & this.boxSize && (this.boxSize < 1 || this.boxSize > 4))
-      throw new Error('invalid boxSize')
+    if (this.strict & this.boxSize && (this.boxSize < 2 || this.boxSize > 6))
+      throw new Error('NALUStream error: invalid boxSize')
 
     /* don't copy this.buf from input, just project it */
     this.buf = new Uint8Array(buf, 0, buf.length)
@@ -543,7 +779,7 @@ class NALUStream {
     if (this.type === 'annexB' && this.boxSize === 4) {
       this.#iterate((buff, first, last) => {
         let p = first - 4
-        if (p < 0) throw new Error('Unexpected packet format')
+        if (p < 0) throw new Error('NALUStream error: Unexpected packet format')
         const len = last - first
         buff[p++] = 0xff & (len >> 24)
         buff[p++] = 0xff & (len >> 16)
@@ -558,7 +794,7 @@ class NALUStream {
         if (p < 0) throw new Error('Unexpected packet format')
         const len = last - first
         if (this.strict && (0xff & (len >> 24) != 0))
-          throw new Exception('Packet too long to store length when boxLenMinusOne is 2')
+          throw new Error('NALUStream error: Packet too long to store length when boxLenMinusOne is 2')
         buff[p++] = 0xff & (len >> 16)
         buff[p++] = 0xff & (len >> 8)
         buff[p++] = 0xff & len
@@ -675,7 +911,7 @@ class NALUStream {
         return { type: 'packet', boxSize: boxSize }
       }
     }
-    if (this.strict) throw new Error('Cannot determine stream type or box size')
+    if (this.strict) throw new Error('NALUStream error: cannot determine stream type or box size')
     return { type: 'unknown', boxSize: -1 }
   }
 
@@ -687,7 +923,7 @@ class NALUStream {
    * @returns {number}
    */
   static readUIntNBE (buff, ptr, boxSize) {
-    if (!boxSize) throw new Error('need a boxsize')
+    if (!boxSize) throw new Error('readUIntNBE error: need a boxsize')
     let result = 0 | 0
     for (let i = ptr; i < ptr + boxSize; i++) {
       result = ((result << 8) | buff[i])
@@ -701,4 +937,4 @@ class NALUStream {
 
 }
 
-if (typeof module !== 'undefined') module.exports = { Bitstream, AvcC, NALUStream }
+if (typeof module !== 'undefined') module.exports = { SPS, PPS, Bitstream, AvcC, NALUStream }
