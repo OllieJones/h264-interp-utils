@@ -1,7 +1,7 @@
 {
   "name": "h264-interp-utils",
-  "version": "0.1.0",
-  "description": "H.264 data streams are tricky to interpret. This Javascript package helps.",
+  "version": "1.0.0",
+  "description": "H.264 data streams and metadata are tricky to interpret. This Javascript package helps.",
   "main": "index.js",
   "scripts": {
     "test": "jest"
@@ -16,9 +16,9 @@
     "video",
     "codec",
     "bitstream",
+    "annexB",
     "Golomb",
     "VLC",
-    "CAVLC",
     "NALU",
     "SPS",
     "PPS",

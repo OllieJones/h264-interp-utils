@@ -12,10 +12,11 @@ compressed video bitstream.
 It handles the parsing of sequences of H.264 Network Access Layer Units (NALUs), formatted either in packet-transport or 
 streaming Annex B format.
 
-It offers functions for reading H.264's variable-length Exponential Golomb codes from its bitstream.
-With those functions it offers 
-
-It handles the parsing of SPS and PPS NALUs
+It offers functions for reading H.264's variable-length
+[Exponential Golomb codes](https://en.wikipedia.org/wiki/Exponential-Golomb_coding)
+from its bitstream.
+With those functions it handles the parsing of Sequence Parameter Set (SPS) and 
+Picture Parameter Set (PPS) NALUs.
 
 ## Install
 
@@ -27,6 +28,32 @@ $ npm install --save h264-bitstream-utils
 
 Installation with other package managers works similarly.
 
+## Why this package
+
+The original reason to develop this package is to allow the reconstruction of
+`'avcC'` atom data from 
+[MediaRecorder](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder)-emitted 
+data. When using MediaRecorder with a MIME type like `video/webm; codecs="avc1.42C01E"`,
+it generates a data stream without placing 
+codec-private data in 
+[`Tracks/Track/CodecPrivate` elements](https://www.matroska.org/technical/elements.html#codecprivate-element).
+But, the experimmental 
+[WebCodecs browser API](https://github.com/WICG/web-codecs/blob/master/explainer.md) 
+requires that data to be passed to it in a `config.description` 
+element. Hence the need to reconstruct it.
+
+MediaRecorder-emitted video streams repeat 
+the H.264 SPS and PPS NALUs at the beginning of the data for each intraframe.
+In Matroska parlance, these are `keyframe`s. In H.264 parlance they are I frames. 
+Each intraframe in simple low-latency MediaEncoder-emitted video streams 
+also happens to be an Instantaneous Decoder Refresh (IDR) frame; 
+decoding can begin at that point in the video stream without
+reference to any previous data.
+
+The `AvcC` class in this package reconstructs the codec-private data from MediaRecorder's 
+intraframe data  stream, by interpreting the SPS and PPS NALUs in that datastream.
+
+ 
 ## Usage
 
 Start by including the module in your program.
@@ -58,7 +85,7 @@ const signedInt = bitstream.se_v()
 You may retrieve the number of remaining bits in your array with `const bitCount = bitstream.remaining`.
 Likewise, you may retrieve the number of bits already consumed with `const bitsUsed = bitstream.consumed`.
 
-For debugging convenience, `bitstream.peek16` shows, in a text string, the next 16 bits.
+For debugging convenience, the `bitstream.peek16` getter shows, in a text string, the next 16 bits.
 
 #### NALUStream
 
@@ -124,7 +151,7 @@ NALUStream objects have `type`, `boxSize`, and `boxSizeMinusOne` properties.
 If you use the constructor to guess what sort of array you gave it, 
 you can retrieve its guesses with those properties.
 
-They have the `packetCount` property indicating how many NALUs are in the array.
+NALUStream objects have the `packetCount` property indicating how many NALUs are in the array.
 
 #### SPS
 
@@ -206,9 +233,8 @@ const codecPrivateDataArray = avCObject.avcC
 
 ## Still to do
 
-* Better documentation
-* Rework Bitstream and NALUStream to handle Javascript streams, not just arrays of data.
-
+* Rework Bitstream and NALUStream to handle Javascript streams, not just static arrays of data.
+* Parse more types of NALUs.
 
 ## Credits
 
