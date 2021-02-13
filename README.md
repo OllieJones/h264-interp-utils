@@ -37,7 +37,7 @@ data. When using MediaRecorder with a MIME type like `video/webm; codecs="avc1.4
 it generates a data stream without placing 
 codec-private data in 
 [`Tracks/Track/CodecPrivate` elements](https://www.matroska.org/technical/elements.html#codecprivate-element).
-But, the experimmental 
+But, the experimental 
 [WebCodecs browser API](https://github.com/WICG/web-codecs/blob/master/explainer.md) 
 requires that data to be passed to it in a `config.description` 
 element. Hence the need to reconstruct it.
@@ -59,7 +59,7 @@ intraframe data  stream, by interpreting the SPS and PPS NALUs in that datastrea
 Start by including the module in your program.
 
 ```js
-const h264Interp = require('h264-interp-utils')
+const h264Uutil = require('h264-interp-utils')
 ```
 
 ### Bitstream
@@ -70,7 +70,7 @@ exponential Golomb coding for
 signed and unsigned integers.
 
 ```js
-const bitstream = new h264Interp.Bitstream(array)
+const bitstream = new h264Uutil.Bitstream(array)
 const aBit = bitstream.u_1()
 const nextBit = bitstream.u_1()
 const twoBits = bitstream.u_2()
@@ -117,7 +117,7 @@ Constructing a NALUStream might look like this. It's wise to catch errors thrown
 
 ```js
 try {
-const nalus = new h264Interp.NALUStream(array, {type:'annexB', boxSize: 4, strict: true})
+const nalus = new h264Uutil.NALUStream(array, {type:'annexB', boxSize: 4, strict: true})
 } catch (error) {
   console.error(error)
 }
@@ -161,7 +161,7 @@ To construct an SPS object, give it an array containing a NALU.
 in a way that makes it impossible to decode.)
 
 ```js
-const sps = new h264Interp.SPS(nalu)
+const sps = new h264Uutil.SPS(nalu)
 ```
 
 Some of its useful properties are:
@@ -176,7 +176,7 @@ Some of its useful properties are:
 pictures in the video stream have margins without imagery in them, the `cropRect` defines
 the useful area. 
 
-Because H.264 streams have sizes that are multiples of 16x16 macroblocks,
+   Because H.264 streams have sizes that are multiples of 16x16 macroblocks,
 it can be necessary to crop the pictures when rendering them.
 
 It has what can only be described as a mess of properties defined by the H.264 standard
@@ -190,7 +190,7 @@ To construct an PPS object, give it an array containing a NALU.
 in a way that makes it impossible to decode.)
 
 ```js
-const pps = new h264Interp.PPS(nalu)
+const pps = new h264Uutil.PPS(nalu)
 ```
 
 Most PPS properties describe the format of the pictures in the video stream
@@ -216,7 +216,7 @@ The AvcC class parses and reconstructs the codec-private data.
 A typical use case is, given arrays containing SPS and PPS NALUs, create an avcC object.
 
 ```js
-const avcCObject = new h264Interp.AvcC({pps:ppsArray, sps:spsArray})
+const avcCObject = new h264Uutil.AvcC({pps:ppsArray, sps:spsArray})
 const mime = avcCObject.MIME
 /* this is the binary array to put into the `'avcC'` atom. */
 const codecPrivateDataArray = avCObject.avcC
@@ -225,7 +225,7 @@ const codecPrivateDataArray = avCObject.avcC
 Another typical use case is, given a key frame payload from a [Matroska SimpleBlock](https://www.matroska.org/technical/basics.html#simpleblock-structure), create the codec-private data.
 
 ```js
-const avcCObject = new h264Interp.AvcC({bitstream: payload})
+const avcCObject = new h264Uutil.AvcC({bitstream: payload})
 const mime = avcCObject.MIME
 /* this is the binary array to put into the `'avcC'` atom. */
 const codecPrivateDataArray = avCObject.avcC
