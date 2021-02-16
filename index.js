@@ -1,6 +1,6 @@
 'use static'
 
-profileNames = {
+const profileNames = {
   66: 'BASELINE',
   77: 'MAIN',
   88: 'EXTENDED',
