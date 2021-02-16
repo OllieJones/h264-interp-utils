@@ -1,4 +1,4 @@
-# h264-bitstream-utils [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com)
+# h264-interp-utils [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com)
 
 H.264 bitstreams are tricky to handle. This Javascript package helps.
 
@@ -23,7 +23,7 @@ Picture Parameter Set (PPS) NALUs.
 Install with [npm](https://www.npmjs.com/):
 
 ```sh
-$ npm install --save h264-bitstream-utils
+$ npm install --save h264-interp-utils
 ```
 
 Installation with other package managers works similarly.
