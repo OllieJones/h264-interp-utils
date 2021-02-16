@@ -1,4 +1,4 @@
-# h264-interp-utils [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com)
+# h264-interp-utils [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com) 
 
 H.264 bitstreams are tricky to handle. This Javascript package helps.
 

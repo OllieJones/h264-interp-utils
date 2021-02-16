@@ -3,7 +3,6 @@
 const h264tools = require('../index.js')
 const avccConfigs = require('./sampledata.js')
 
-
 test('AvcC constructor with avcC array', () => {
   for (let i = 0; i < avccConfigs.length; i++) {
     const cfg = avccConfigs[i]

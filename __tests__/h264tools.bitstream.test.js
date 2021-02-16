@@ -3,7 +3,6 @@
 const h264tools = require('../index.js')
 const avccConfigs = require('./sampledata.js')
 
-
 // http://iphome.hhi.de/suehring/tml/doc/ldec/html/parset_8c_source.html
 
 test('Bitstream parser PPS NALUs', () => {
@@ -31,7 +30,7 @@ test('Bitstream parser PPS NALUs', () => {
             const run_length_minus1 = bitstream.ue(v)
           }
           break
-        case 1:  /* there is no case 1 */
+        case 1: /* there is no case 1 */
           break
         case 2:
           for (i = 0; i <= num_slice_groups_minus1; i++) {
@@ -78,7 +77,6 @@ test('Bitstream parser PPS NALUs', () => {
     const deblocking_filter_control_present_flag = bitstream.u_1()
     const constrained_intra_pred_flag = bitstream.u_1()
     const redundant_pic_cnt_present_flag = bitstream.u_1()
-
   }
 })
 
@@ -121,7 +119,7 @@ test('Bitstream parser SPS NALUs', () => {
       const chroma_format_idc = bitstream.ue_v()
       expect(chroma_format_idc).toBeGreaterThanOrEqual(0)
       expect(chroma_format_idc).toBeLessThanOrEqual(3)
-      if (chroma_format_idc === 3) {  /* 3 = YUV444 */
+      if (chroma_format_idc === 3) { /* 3 = YUV444 */
         const separate_colour_plane_flag = bitstream.u_1()
         const chromaArrayType = separate_colour_plane_flag ? 0 : chroma_format_idc
       }
@@ -206,6 +204,5 @@ test('Bitstream parser SPS NALUs', () => {
       const frame_cropping_rect_bottom_offset = bitstream.ue_v()
     }
     const vui_prameters_present_flag = bitstream.u_1()
-
   }
 })

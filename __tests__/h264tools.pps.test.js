@@ -10,7 +10,7 @@ test('PPS parser PPS', () => {
     const cfg = avccConfigs[i]
     const pps = new h264tools.PPS(cfg.pps)
     expect(pps.success).toBeTruthy()
-    let entropyCodingMode = pps.entropyCodingMode
+    const entropyCodingMode = pps.entropyCodingMode
     expect(entropyCodingMode).toEqual(cfg.entropyCodingMode)
   }
 })
@@ -24,7 +24,7 @@ test('PPS parser PPS from avcC', () => {
       for (let p = 0; p < avc.pps.length; p++) {
         const pps = new h264tools.PPS(avc.pps[p])
         expect(pps.success).toBeTruthy()
-        let entropyCodingMode = pps.entropyCodingMode
+        const entropyCodingMode = pps.entropyCodingMode
         expect(entropyCodingMode).toEqual(cfg.entropyCodingMode)
       }
     }
