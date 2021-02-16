@@ -11,11 +11,11 @@ test('AvcC constructor with avcC array', () => {
       const options = { avcC: cfg.avcC }
       if (typeof cfg.strict === 'boolean') options.strict = cfg.strict
       const avc = new h264tools.AvcC(options)
-      expect(avc.MIME).toEqual(cfg.mime)
       const avcArray = avc.avcC
       expect(avcArray).toEqual(cfg.avcC.subarray(0, avcArray.byteLength))
       expect(avc.pps[0]).toEqual(cfg.pps)
       expect(avc.sps[0]).toEqual(cfg.sps)
+      expect(avc.MIME).toEqual(cfg.mime)
     }
   }
 })
