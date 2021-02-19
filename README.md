@@ -1,4 +1,4 @@
-# h264-interp-utils [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com) 
+# h264-interp-utils [![Tests](https://github.com/OllieJones/h264-interp-utils/actions/workflows/node.js.yml/badge.svg)](https://github.com/OllieJones/h264-interp-utils/actions/workflows/node.js.yml) [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com) 
 
 H.264 bitstreams are tricky to handle. This Javascript package helps.
 
@@ -59,7 +59,7 @@ intraframe data  stream, by interpreting the SPS and PPS NALUs in that datastrea
 Start by including the module in your program.
 
 ```js
-const h264Uutil = require('h264-interp-utils')
+const H264Util = require('h264-interp-utils')
 ```
 
 ### Bitstream
@@ -70,7 +70,7 @@ exponential Golomb coding for
 signed and unsigned integers.
 
 ```js
-const bitstream = new h264Uutil.Bitstream(array)
+const bitstream = new H264Util.Bitstream(array)
 const aBit = bitstream.u_1()
 const nextBit = bitstream.u_1()
 const twoBits = bitstream.u_2()
@@ -117,7 +117,7 @@ Constructing a NALUStream might look like this. It's wise to catch errors thrown
 
 ```js
 try {
-const nalus = new h264Uutil.NALUStream(array, {type:'annexB', boxSize: 4, strict: true})
+const nalus = new H264Util.NALUStream(array, {type:'annexB', boxSize: 4, strict: true})
 } catch (error) {
   console.error(error)
 }
@@ -161,7 +161,7 @@ To construct an SPS object, give it an array containing a NALU.
 in a way that makes it impossible to decode.)
 
 ```js
-const sps = new h264Uutil.SPS(nalu)
+const sps = new H264Util.SPS(nalu)
 ```
 
 Some of its useful properties are:
@@ -190,7 +190,7 @@ To construct an PPS object, give it an array containing a NALU.
 in a way that makes it impossible to decode.)
 
 ```js
-const pps = new h264Uutil.PPS(nalu)
+const pps = new H264Util.PPS(nalu)
 ```
 
 Most PPS properties describe the format of the pictures in the video stream
@@ -216,7 +216,7 @@ The AvcC class parses and reconstructs the codec-private data.
 A typical use case is, given arrays containing SPS and PPS NALUs, create an avcC object.
 
 ```js
-const avcCObject = new h264Uutil.AvcC({pps:ppsArray, sps:spsArray})
+const avcCObject = new H264Util.AvcC({pps:ppsArray, sps:spsArray})
 const mime = avcCObject.MIME
 /* this is the binary array to put into the `'avcC'` atom. */
 const codecPrivateDataArray = avCObject.avcC
@@ -225,7 +225,7 @@ const codecPrivateDataArray = avCObject.avcC
 Another typical use case is, given a key frame payload from a [Matroska SimpleBlock](https://www.matroska.org/technical/basics.html#simpleblock-structure), create the codec-private data.
 
 ```js
-const avcCObject = new h264Uutil.AvcC({bitstream: payload})
+const avcCObject = new H264Util.AvcC({bitstream: payload})
 const mime = avcCObject.MIME
 /* this is the binary array to put into the `'avcC'` atom. */
 const codecPrivateDataArray = avCObject.avcC
