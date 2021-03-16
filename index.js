@@ -1,3 +1,4 @@
+/* eslint-disable camelcase,curly */
 'use static'
 
 const profileNames = {
@@ -51,7 +52,7 @@ class SPS {
       this.chroma_format_idc = bitstream.ue_v()
       if (this.bit_depth_luma_minus8 > 3)
         throw new Error('SPS error: chroma_format_idc must be 3 or less')
-      if (this.chroma_format_idc === 3) {  /* 3 = YUV444 */
+      if (this.chroma_format_idc === 3) { /* 3 = YUV444 */
         this.separate_colour_plane_flag = bitstream.u_1()
         this.chromaArrayType = this.separate_colour_plane_flag ? 0 : this.chroma_format_idc
       }
@@ -100,6 +101,7 @@ class SPS {
     if (this.pic_order_cnt_type > 2)
       throw new Error('SPS error: pic_order_cnt_type must be 2 or less')
 
+    let expectedDeltaPerPicOrderCntCycle = 0
     switch (this.pic_order_cnt_type) {
       case 0:
         this.log2_max_pic_order_cnt_lsb_minus4 = bitstream.ue_v()
@@ -111,12 +113,12 @@ class SPS {
         this.delta_pic_order_always_zero_flag = bitstream.u_1()
         this.offset_for_non_ref_pic = bitstream.se_v()
         this.offset_for_top_to_bottom_field = bitstream.se_v()
-        let expectedDeltaPerPicOrderCntCycle = 0
         this.num_ref_frames_in_pic_order_cnt_cycle = bitstream.ue_v()
         this.offset_for_ref_frame = []
         for (let i = 0; i < this.num_ref_frames_in_pic_order_cnt_cycle; i++) {
           const offsetForRefFrame = bitstream.se_v()
           this.offset_for_ref_frame.push(offsetForRefFrame)
+          // eslint-disable-next-line no-unused-vars
           expectedDeltaPerPicOrderCntCycle += offsetForRefFrame
         }
         break
@@ -160,7 +162,6 @@ class SPS {
     }
     this.vui_parameters_present_flag = bitstream.u_1()
     this.success = true
-
   }
 
   get profile_compatibility () {
@@ -188,7 +189,6 @@ class SPS {
 }
 
 class PPS {
-
   constructor (NALU) {
     const bitstream = new Bitstream(NALU)
 
@@ -213,7 +213,7 @@ class PPS {
             this.run_length_minus1.push(bitstream.ue_v())
           }
           break
-        case 1:  /* there is no case 1 */
+        case 1: /* there is no case 1 */
           break
         case 2:
           this.top_left = []
@@ -280,10 +280,6 @@ class PPS {
  * Tools for handling H.264 bitstream issues.
  */
 class Bitstream {
-  buffer = null
-  ptr = 0
-  max = 0
-
   /**
    * Construct a bitstream
    * @param stream  Buffer containing the stream
@@ -319,7 +315,7 @@ class Bitstream {
       if (i === n - 1 || (i % 4) === 3) {
         hexstrings.push(nibble.toString(16))
         let bitstring = ''
-        bits.map((bit) => bitstring += (bit === 0) ? '0' : '1')
+        bits.forEach(bit => { bitstring += (bit === 0) ? '0' : '1' })
         bitstrings.push(bitstring)
         bits.length = 0
         nibble = 0
@@ -434,17 +430,6 @@ class Bitstream {
  * Handle the parsing and creation of "avcC" atoms.
  */
 class AvcC {
-  strict = true
-  sps = []
-  pps = []
-  configurationVersion = 1
-  profileIndication = 0xff
-  profileCompatibility = 0xff
-  avcLevelIndication = 0xff
-  boxSizeMinusOne = 3
-  #avcC = null
-  extradata = null
-
   /**
    * The options here:
    *    options.bitstream is a bunch of NALUs, the video payload from a webm key frame.
@@ -455,6 +440,18 @@ class AvcC {
    * @param options
    */
   constructor (options) {
+    /* instance props */
+    this.strict = true
+    this.sps = []
+    this.pps = []
+    this.configurationVersion = 1
+    this.profileIndication = 0xff
+    this.profileCompatibility = 0xff
+    this.avcLevelIndication = 0xff
+    this.boxSizeMinusOne = 3
+    this.cacheAvcC = null
+    this.extradata = null
+
     if (typeof options.strict === 'boolean') this.strict = options.strict
     if (typeof options.strictLength === 'boolean') this.strictLength = options.strictLength
     /* construct avcC from NALU stream */
@@ -462,43 +459,36 @@ class AvcC {
     if (options.bitstream || options.naluStream) {
       stream = options.naluStream ? options.naluStream : new NALUStream(options.bitstream, options)
       this.boxSizeMinusOne = stream.boxSizeMinusOne
-      let sps
-      let pps
       for (const nalu of stream) {
         switch (nalu[0] & 0x1f) {
           case 7:
-            this.#unpackSps(nalu)
+            this.unpackSps(nalu)
             this.sps.push(nalu)
             break
           case 8:
-            this.#unpackPps(nalu)
+            this.unpackPps(nalu)
             this.pps.push(nalu)
             break
         }
         if (this.pps.length > 0 && this.sps.length > 0) return
       }
       if (this.strict) throw new Error('avcC error: bitstream must contain both SPS and PPS')
-    }
-    /* construct avcC from sps and pps */
-    else if (options.sps && options.pps) {
-      this.#unpackSps(options.sps)
-      this.#unpackPps(options.pps)
+    } else if (options.sps && options.pps) {
+      /* construct avcC from sps and pps */
+      this.unpackSps(options.sps)
+      this.unpackPps(options.pps)
       this.sps.push(options.sps)
       this.pps.push(options.pps)
-
-    }
-    /* construct it from avcC stream */
-    else if (options.avcC) {
-      this.#avcC = options.avcC
-      this.#parseAvcC(options.avcC)
-
+    } else if (options.avcC) {
+      /* construct it from avcC stream */
+      this.cacheAvcC = options.avcC
+      this.parseAvcC(options.avcC)
     }
     if (profileNames[this.profileIndication]) {
       this.profileName = profileNames[this.profileIndication]
     } else {
       throw new Error('avcC error: invalid profileIndication')
     }
-
   }
 
   /**
@@ -506,8 +496,8 @@ class AvcC {
    * @param {Uint8Array} avcC
    */
   set avcC (avcC) {
-    this.#avcC = avcC
-    this.#parseAvcC(avcC)
+    this.cacheAvcC = avcC
+    this.parseAvcC(this.cacheAvcC)
   }
 
   /**
@@ -515,12 +505,12 @@ class AvcC {
    * @returns {Uint8Array}
    */
   get avcC () {
-    this.#avcC = this.#packAvcC()
-    return this.#avcC
+    this.cacheAvcC = this.packAvcC()
+    return this.cacheAvcC
   }
 
   get hex () {
-    return NALUStream.array2hex(this.#avcC)
+    return NALUStream.array2hex(this.cacheAvcC)
   }
 
   /**
@@ -536,7 +526,7 @@ class AvcC {
     return f.join('')
   }
 
-  #parseAvcC (inbuff) {
+  parseAvcC (inbuff) {
     const buf = new Uint8Array(inbuff, 0, inbuff.byteLength)
     const buflen = buf.byteLength
     if (buflen < 10) throw new Error('avcC error: object too short')
@@ -549,18 +539,18 @@ class AvcC {
     this.avcLevelIndication = buf[ptr++]
     this.boxSizeMinusOne = buf[ptr++] & 3
     let nalen = buf[ptr++] & 0x1f
-    ptr = this.#captureNALUs(buf, ptr, nalen, this.sps)
+    ptr = this.captureNALUs(buf, ptr, nalen, this.sps)
     nalen = buf[ptr++]
-    ptr = this.#captureNALUs(buf, ptr, nalen, this.pps)
+    ptr = this.captureNALUs(buf, ptr, nalen, this.pps)
     if (ptr < buflen) this.extradata = buf.subarray(ptr, buflen)
     ptr = buflen
     return inbuff
   }
 
-  #captureNALUs (buf, ptr, count, nalus) {
+  captureNALUs (buf, ptr, count, nalus) {
     nalus.length = 0
     if (this.strict && count <= 0)
-      throw new Error(`avcC error: at least one NALU is required`)
+      throw new Error('avcC error: at least one NALU is required')
     try {
       for (let i = 0; i < count; i++) {
         const len = AvcC.readUInt16BE(buf, ptr)
@@ -573,10 +563,9 @@ class AvcC {
       throw new Error(ex)
     }
     return ptr
-
   }
 
-  #unpackSps (spsData) {
+  unpackSps (spsData) {
     const sps = new SPS(spsData)
     this.profileIndication = sps.profile_idc
     this.profileCompatibility = sps.profile_compatibility
@@ -585,7 +574,7 @@ class AvcC {
     return sps
   }
 
-  #unpackPps (ppsData) {
+  unpackPps (ppsData) {
     const pps = new PPS(ppsData)
     this.interlaced = pps.interlaced
     this.cropRect = pps.croprect
@@ -595,7 +584,7 @@ class AvcC {
    * pack the avcC atom bitstream from the information in the class
    * @returns {Uint8Array}
    */
-  #packAvcC () {
+  packAvcC () {
     let length = 6
     for (let spsi = 0; spsi < this.sps.length; spsi++) length += 2 + this.sps[spsi].byteLength
     length += 1
@@ -610,8 +599,8 @@ class AvcC {
     if (this.strict && (this.boxSizeMinusOne < 0 || this.boxSizeMinusOne > 3))
       throw new Error('avcC error: bad boxSizeMinusOne value: ' + this.boxSizeMinusOne)
     buf[p++] = (0xfc | (0x03 & this.boxSizeMinusOne))
-    p = AvcC.#appendNALUs(buf, p, this.sps, 0x1f)
-    p = AvcC.#appendNALUs(buf, p, this.pps, 0xff)
+    p = AvcC.appendNALUs(buf, p, this.sps, 0x1f)
+    p = AvcC.appendNALUs(buf, p, this.pps, 0xff)
     if (p < length) buf.set(this.extradata, p)
     return buf
   }
@@ -624,7 +613,7 @@ class AvcC {
    * @param mask {integer} mask for setting bits in nalu-count field
    * @returns {integer} updated pointer.
    */
-  static #appendNALUs (buf, p, nalus, mask) {
+  static appendNALUs (buf, p, nalus, mask) {
     const setBits = ~mask
     if (this.strict && (nalus.length <= 0 || nalus.length > mask))
       throw new Error('avcC error: too many or not enough NALUs: ' + nalus.length)
@@ -665,21 +654,12 @@ class AvcC {
   static byte2hex (val) {
     return ('00' + val.toString(16)).slice(-2)
   }
-
 }
 
 /**
  * process buffers full of NALU streams
  */
 class NALUStream {
-  static #validTypes = new Set(['packet', 'annexB', 'unknown'])
-  strict = false
-  type = null
-  buf = null
-  boxSize = null
-  #cursor = 0
-  #nextPacket = undefined
-
   /**
    * Construct a NALUStream from a buffer, figuring out what kind of stream it
    * is when the options are omitted.
@@ -687,12 +667,20 @@ class NALUStream {
    * @param options strict, boxSize, boxSizeMinusOne, type='packet' or 'annexB',
    */
   constructor (buf, options) {
+    this.validTypes = new Set(['packet', 'annexB', 'unknown'])
+    this.strict = false
+    this.type = null
+    this.buf = null
+    this.boxSize = null
+    this.cursor = 0
+    this.nextPacket = undefined
+
     if (options) {
       if (typeof options.strict === 'boolean') this.strict = Boolean(options.strict)
       if (options.boxSizeMinusOne) this.boxSize = options.boxSizeMinusOne + 1
       if (options.boxSize) this.boxSize = options.boxSize
       if (options.type) this.type = options.type
-      if (this.type && !NALUStream.#validTypes.has(this.type))
+      if (this.type && !this.validTypes.has(this.type))
         throw new Error('NALUStream error: type must be packet or annexB')
     }
 
@@ -703,13 +691,13 @@ class NALUStream {
     this.buf = new Uint8Array(buf, 0, buf.length)
 
     if (!this.type || !this.boxSize) {
-      const { type, boxSize } = this.#getType(4)
+      const { type, boxSize } = this.getType(4)
       this.type = type
       this.boxSize = boxSize
     }
-    this.#nextPacket = this.type === 'packet'
-      ? this.#nextLengthCountedPacket
-      : this.#nextAnnexBPacket
+    this.nextPacket = this.type === 'packet'
+      ? this.nextLengthCountedPacket
+      : this.nextAnnexBPacket
   }
 
   get boxSizeMinusOne () {
@@ -721,7 +709,7 @@ class NALUStream {
    * @returns {number}
    */
   get packetCount () {
-    return this.#iterate()
+    return this.iterate()
   }
 
   /**
@@ -736,18 +724,18 @@ class NALUStream {
     let delim = { n: 0, s: 0, e: 0 }
     return {
       next: () => {
-        if (this.type === 'unknown'
-          || this.boxSize < 1
-          || delim.n < 0)
+        if (this.type === 'unknown' ||
+          this.boxSize < 1 ||
+          delim.n < 0)
           return { value: undefined, done: true }
-        delim = this.#nextPacket(this.buf, delim.n, this.boxSize)
+        delim = this.nextPacket(this.buf, delim.n, this.boxSize)
         while (true) {
           if (delim.e > delim.s) {
             const pkt = this.buf.subarray(delim.s, delim.e)
             return { value: pkt, done: false }
           }
           if (delim.n < 0) break
-          delim = this.#nextPacket(this.buf, delim.n, this.boxSize)
+          delim = this.nextPacket(this.buf, delim.n, this.boxSize)
         }
         return { value: undefined, done: true }
       }
@@ -762,7 +750,7 @@ class NALUStream {
    */
   get packets () {
     const pkts = []
-    this.#iterate((buf, first, last) => {
+    this.iterate((buf, first, last) => {
       const pkt = buf.subarray(first, last)
       pkts.push(pkt)
     })
@@ -777,7 +765,7 @@ class NALUStream {
     if (this.type === 'packet') return this
     /* change 00 00 00 01 delimiters to packet lengths */
     if (this.type === 'annexB' && this.boxSize === 4) {
-      this.#iterate((buff, first, last) => {
+      this.iterate((buff, first, last) => {
         let p = first - 4
         if (p < 0) throw new Error('NALUStream error: Unexpected packet format')
         const len = last - first
@@ -786,14 +774,13 @@ class NALUStream {
         buff[p++] = 0xff & (len >> 8)
         buff[p++] = 0xff & len
       })
-    }
-    /* change 00 00 01 delimiters to packet lengths */
-    else if (this.type === 'annexB' && this.boxSize === 3) {
-      this.#iterate((buff, first, last) => {
+    } else if (this.type === 'annexB' && this.boxSize === 3) {
+      /* change 00 00 01 delimiters to packet lengths */
+      this.iterate((buff, first, last) => {
         let p = first - 3
         if (p < 0) throw new Error('Unexpected packet format')
         const len = last - first
-        if (this.strict && (0xff & (len >> 24) != 0))
+        if (this.strict && (0xff & (len >> 24) !== 0))
           throw new Error('NALUStream error: Packet too long to store length when boxLenMinusOne is 2')
         buff[p++] = 0xff & (len >> 16)
         buff[p++] = 0xff & (len >> 8)
@@ -801,23 +788,23 @@ class NALUStream {
       })
     }
     this.type = 'packet'
-    this.#nextPacket = this.#nextLengthCountedPacket
+    this.nextPacket = this.nextLengthCountedPacket
 
     return this
   }
 
-  #iterate (callback) {
+  iterate (callback) {
     if (this.type === 'unknown') return 0
     if (this.boxSize < 1) return 0
     let packetCount = 0
-    let delim = this.#nextPacket(this.buf, 0, this.boxSize)
+    let delim = this.nextPacket(this.buf, 0, this.boxSize)
     while (true) {
       if (delim.e > delim.s) {
         packetCount++
         if (typeof callback === 'function') callback(this.buf, delim.s, delim.e)
       }
       if (delim.n < 0) break
-      delim = this.#nextPacket(this.buf, delim.n, this.boxSize)
+      delim = this.nextPacket(this.buf, delim.n, this.boxSize)
     }
     return packetCount
   }
@@ -828,7 +815,7 @@ class NALUStream {
    * @param p
    * @returns {{s: *, e: *, n: *}|{s: *, e: *, n: number}|{s: *, e: ((string: (string | NodeJS.ArrayBufferView | ArrayBuffer | SharedArrayBuffer), encoding?: BufferEncoding) => number) | number, n: number}}
    */
-  #nextAnnexBPacket (buf, p) {
+  nextAnnexBPacket (buf, p) {
     const buflen = buf.byteLength
     const start = p
     if (p === buflen) return { n: -1, s: start, e: p }
@@ -860,10 +847,10 @@ class NALUStream {
    * @param boxSize
    * @returns {{s: *, e: *, n: *}|{s: number, e: number, message: string, n: number}}
    */
-  #nextLengthCountedPacket (buf, p, boxSize) {
+  nextLengthCountedPacket (buf, p, boxSize) {
     const buflen = buf.byteLength
     if (p < buflen) {
-      let plength = NALUStream.readUIntNBE(buf, p, boxSize)
+      const plength = NALUStream.readUIntNBE(buf, p, boxSize)
       if (plength < 2 || plength > buflen + boxSize) {
         return { n: -2, s: 0, e: 0, message: 'bad length' }
       }
@@ -876,7 +863,7 @@ class NALUStream {
    * figure out type of data stream
    * @returns {{boxSize: number, type: string}}
    */
-  #getType (scanLimit) {
+  getType (scanLimit) {
     if (this.type && this.boxSize) return { type: this.type, boxSize: this.boxSize }
     /* start with a delimiter? */
     if (!this.type || this.type === 'annexB') {
@@ -894,7 +881,7 @@ class NALUStream {
         packetCount = -1
         break
       }
-      let delim = this.#nextLengthCountedPacket(this.buf, 0, boxSize)
+      let delim = this.nextLengthCountedPacket(this.buf, 0, boxSize)
       while (true) {
         if (delim.n < -1) {
           packetCount = -1
@@ -905,7 +892,7 @@ class NALUStream {
           if (scanLimit && packetCount >= scanLimit) break
         }
         if (delim.n < 0) break
-        delim = this.#nextLengthCountedPacket(this.buf, delim.n, boxSize)
+        delim = this.nextLengthCountedPacket(this.buf, delim.n, boxSize)
       }
       if (packetCount > 0) {
         return { type: 'packet', boxSize: boxSize }
@@ -934,7 +921,6 @@ class NALUStream {
   static array2hex (array) { // buffer is an ArrayBuffer
     return Array.prototype.map.call(new Uint8Array(array, 0, array.byteLength), x => ('00' + x.toString(16)).slice(-2)).join(' ')
   }
-
 }
 
 if (typeof module !== 'undefined') module.exports = { SPS, PPS, Bitstream, AvcC, NALUStream }
