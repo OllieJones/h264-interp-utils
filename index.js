@@ -1,7 +1,6 @@
 /* eslint-disable camelcase,curly */
-'use static'
 
-const profileNames = {
+export const profileNames = {
   66: 'BASELINE',
   77: 'MAIN',
   88: 'EXTENDED',
@@ -12,7 +11,7 @@ const profileNames = {
   44: 'FREXT_CAVLC444'
 }
 
-class SPS {
+export class SPS {
   constructor (SPS) {
     const bitstream = new Bitstream(SPS)
 
@@ -188,7 +187,7 @@ class SPS {
   }
 }
 
-class PPS {
+export class PPS {
   constructor (NALU) {
     const bitstream = new Bitstream(NALU)
 
@@ -279,7 +278,7 @@ class PPS {
 /**
  * Tools for handling H.264 bitstream issues.
  */
-class Bitstream {
+export class Bitstream {
   /**
    * Construct a bitstream
    * @param stream  Buffer containing the stream
@@ -429,7 +428,7 @@ class Bitstream {
 /**
  * Handle the parsing and creation of "avcC" atoms.
  */
-class AvcC {
+export class AvcC {
   /**
    * The options here:
    *    options.bitstream is a bunch of NALUs, the video payload from a webm key frame.
@@ -659,7 +658,7 @@ class AvcC {
 /**
  * process buffers full of NALU streams
  */
-class NALUStream {
+export class NALUStream {
   /**
    * Construct a NALUStream from a buffer, figuring out what kind of stream it
    * is when the options are omitted.
@@ -922,5 +921,3 @@ class NALUStream {
     return Array.prototype.map.call(new Uint8Array(array, 0, array.byteLength), x => ('00' + x.toString(16)).slice(-2)).join(' ')
   }
 }
-
-if (typeof module !== 'undefined') module.exports = { SPS, PPS, Bitstream, AvcC, NALUStream }

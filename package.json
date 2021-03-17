@@ -1,6 +1,6 @@
 {
   "name": "h264-interp-utils",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "H.264 data streams and metadata are tricky to interpret. This Javascript package helps.",
   "main": "index.js",
   "scripts": {

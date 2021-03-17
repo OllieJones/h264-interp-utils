@@ -1,11 +1,9 @@
-'use strict'
-
-function makeArray (str) {
+export function makeArray (str) {
   if (typeof str !== 'string') str = str.join(' ')
   return new Uint8Array(str.match(/[\da-f]{2} */gi).map(s => parseInt(s, 16)))
 }
 
-const avccConfigs = []
+export const avccConfigs = []
 let cfg
 
 /* this has much extradata */
@@ -133,5 +131,3 @@ cfg = {
   entropyCodingMode: 'CABAC'
 }
 avccConfigs.push(cfg)
-
-if (typeof module !== 'undefined') module.exports = avccConfigs

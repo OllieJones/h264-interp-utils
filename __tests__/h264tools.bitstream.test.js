@@ -1,7 +1,7 @@
 'use strict'
 
-const h264tools = require('../index.js')
-const avccConfigs = require('./sampledata.js')
+import * as h264tools from '../index.js'
+import { avccConfigs } from './sampledata.js'
 
 // http://iphome.hhi.de/suehring/tml/doc/ldec/html/parset_8c_source.html
 
