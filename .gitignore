@@ -2,6 +2,7 @@
 ## generated static files
 static/css/style.css
 static/js/*.min.js
+coverage/
 
 # User-specific files
 *.suo

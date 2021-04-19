@@ -11,6 +11,13 @@ export const profileNames = {
   44: 'FREXT_CAVLC444'
 }
 
+export const chromaFormatValues = {
+  0: 'YUV400',
+  1: 'YUV420',
+  2: 'YUV422',
+  3: 'YUV444'
+}
+
 export class SPS {
   constructor (SPS) {
     const bitstream = new Bitstream(SPS)
@@ -160,6 +167,46 @@ export class SPS {
       }
     }
     this.vui_parameters_present_flag = bitstream.u_1()
+    if (this.vui_parameters_present_flag) {
+      this.aspect_ratio_info_present_flag = bitstream.u_1()
+      if (this.aspect_ratio_info_present_flag) {
+        this.aspect_ratio_idc = bitstream.u_8()
+        if (this.aspect_ratio_idc) {
+          this.sar_width = bitstream.u(16)
+          this.sar_height = bitstream.u(16)
+        }
+      }
+
+      this.overscan_info_present_flag = bitstream.u_1()
+      if (this.overscan_info_present_flag)
+        this.overscan_appropriate_flag = bitstream.u_1()
+      this.video_signal_type_present_flag = bitstream.u_1()
+      if (this.video_signal_type_present_flag) {
+        this.video_format = bitstream.u(3)
+        this.video_full_range_flag = bitstream.u_1()
+        this.color_description_present_flag = bitstream.u_1()
+        if (this.color_description_present_flag) {
+          this.color_primaries = bitstream.u_8()
+          this.transfer_characteristics = bitstream.u_8()
+          this.matrix_coefficients = bitstream.u_8()
+        }
+      }
+      this.chroma_loc_info_present_flag = bitstream.u_1()
+      if (this.chroma_loc_info_present_flag) {
+        this.chroma_sample_loc_type_top_field = bitstream.ue_v()
+        this.chroma_sample_loc_type_bottom_field = bitstream.ue_v()
+      }
+      this.timing_info_present_flag = bitstream.u_1()
+      if (this.timing_info_present_flag) {
+        this.num_units_in_tick = bitstream.u(32)
+        this.time_scale = bitstream.u(32)
+        this.fixed_frame_rate_flag = bitstream.u_1()
+        if (this.num_units_in_tick > 0) {
+          this.framesPerSecond = this.time_scale / this.num_units_in_tick
+        }
+      }
+      this.nal_hrd_parameters_present_flag = bitstream.u_1()
+    }
     this.success = true
   }
 
@@ -285,9 +332,19 @@ export class Bitstream {
    * @param max  Length, in BITS, of stream  (optional)
    */
   constructor (stream, max) {
-    this.buffer = new Uint8Array(stream, 0, stream.byteLength)
+    const buf = new Uint8Array(stream, 0, stream.byteLength)
+    this.buffer = new Uint8Array(stream.byteLength)
+    let p = 0
+    let q = 0
+    this.buffer[q++] = stream[p++]
+    this.buffer[q++] = stream[p++]
+    /* emulation prevention:  00 00 03  means 00 00 */
+    while (p < stream.byteLength) {
+      if (buf[p - 2] === 0 && buf[p - 1] === 0 && buf[p] === 3) p++
+      else this.buffer[q++] = stream[p++]
+    }
     this.ptr = 0
-    this.max = max || (stream.byteLength << 3)
+    this.max = max || (q << 3)
   }
 
   /**
@@ -322,6 +379,14 @@ export class Bitstream {
     }
     const result = bitstrings.join(' ') + ' ' + hexstrings.join('')
     return result
+  }
+
+  /**
+   * get the NAL unit type at the beginning of this Bitstream.
+   * @returns {number}
+   */
+  get nalUnitType () {
+    return this.buffer[0] & 0x1f
   }
 
   /**
@@ -569,14 +634,17 @@ export class AvcC {
     this.profileIndication = sps.profile_idc
     this.profileCompatibility = sps.profile_compatibility
     this.avcLevelIndication = sps.level_idc
-    this.cropRect = sps.cropRect
+    if (sps.cropRect) this.cropRect = sps.cropRect
+    if (sps.picWidth) this.picWidth = sps.picWidth
+    if (sps.picHeight) this.picHeight = sps.picHeight
+    if (sps.framesPerSecond) this.framesPerSecond = sps.framesPerSecond
     return sps
   }
 
   unpackPps (ppsData) {
     const pps = new PPS(ppsData)
     this.interlaced = pps.interlaced
-    this.cropRect = pps.croprect
+    this.entropyCodingMode = pps.entropyCodingMode
   }
 
   /**

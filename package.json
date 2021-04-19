@@ -1,6 +1,6 @@
 {
   "name": "h264-interp-utils",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "H.264 data streams and metadata are tricky to interpret. This Javascript package helps.",
   "main": "index.js",
   "scripts": {
@@ -14,16 +14,11 @@
     "h264",
     "AVC",
     "video",
-    "codec",
-    "bitstream",
     "annexB",
     "Golomb",
-    "VLC",
-    "NALU",
     "SPS",
     "PPS",
-    "avcC",
-    "WebCodecs"
+    "avcC"
   ],
   "author": "Oliver Jones <olliejones@gmail.com> (https://plumislandmedia.net/)",
   "license": "MIT",
