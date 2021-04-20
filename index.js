@@ -810,6 +810,43 @@ export class NALUStream {
   }
 
   /**
+   * Iterator allowing
+   *      for (const n of stream.nalus()) {
+   *        const {rawNalu, nalu} = n
+   *       }
+   * Yields, space-efficiently, the elements of the stream
+   * NOTE WELL: this yields subarrays of the NALUs in the stream, not copies.
+   * so changing the NALU contents also changes the stream. Beware.
+   * @returns {{next: next}}
+   */
+  nalus () {
+    return {
+      [Symbol.iterator]: () => {
+        let delim = { n: 0, s: 0, e: 0 }
+        return {
+          next: () => {
+            if (this.type === 'unknown' ||
+              this.boxSize < 1 ||
+              delim.n < 0)
+              return { value: undefined, done: true }
+            delim = this.nextPacket(this.buf, delim.n, this.boxSize)
+            while (true) {
+              if (delim.e > delim.s) {
+                const nalu = this.buf.subarray(delim.s, delim.e)
+                const rawNalu = this.buf.subarray(delim.s - this.boxSize, delim.e)
+                return { value: { nalu, rawNalu }, done: false }
+              }
+              if (delim.n < 0) break
+              delim = this.nextPacket(this.buf, delim.n, this.boxSize)
+            }
+            return { value: undefined, done: true }
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Returns an array of NALUs
    * NOTE WELL: this yields subarrays of the NALUs in the stream, not copies.
    * so changing the NALU contents also changes the stream. Beware.

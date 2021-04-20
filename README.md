@@ -130,7 +130,17 @@ for (const nalu of nalus) {
   /* handle each NALU */
 }
 ```
-or (somewhat less efficiently) like this:
+or this, if you want both the NALUs and 
+their raw counterparts with the leading delimiters
+still present
+```js
+for (const n of nalus.nalus()) {
+  const { nalu, rawNalu } = n
+  /* handle each nalu */
+}
+```
+
+Somewhat less efficiently you can iterate like this:
 
 ```js
 const naluArray = nalus.packets

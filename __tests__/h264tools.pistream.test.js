@@ -16,14 +16,14 @@ test('parse raspivid --inline --spstimings', () => {
     const naluType = naluBitstream[0] & 0x1f
     let item
     switch (naluType) {
-      case 7:
+      case 7: /* sps */
         item = new h264tools.SPS(naluBitstream)
         expect(item.framesPerSecond).toEqual(60)
         expect(item.picWidth).toEqual(352)
         expect(item.picHeight).toEqual(288)
         sps = naluBitstream
         break
-      case 8:
+      case 8: /* pps */
         item = new h264tools.PPS(naluBitstream)
         pps = naluBitstream
         break
