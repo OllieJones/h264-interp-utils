@@ -1,4 +1,4 @@
-'use strict'
+import { test, expect } from '@jest/globals'
 
 import * as h264tools from '../index.js'
 import { avccConfigs } from './sampledata.js'

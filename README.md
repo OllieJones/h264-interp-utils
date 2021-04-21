@@ -81,7 +81,7 @@ const twoBits = bitstream.u_2()
 const fiveBits = bitstream.u(5)
 const aByte = bitstream.u_8()
 
-/* variable-length integers */
+/* variable-length exponential-Golomb coded integers */
 const unsignedInt = bitstream.ue_v()
 const signedInt = bitstream.se_v()
 ```
@@ -94,6 +94,22 @@ For debugging convenience, the `bitstream.peek16` getter shows, in a text string
 Bitstream's constructor removes 
 [*emulation prevention bytes*](https://en.wikipedia.org/wiki/Network_Abstraction_Layer#NAL_Units_in_Byte-Stream_Format_Use)
 from the array.
+
+You may retrieve the stream, with emulation prevention bytes,  with
+```js
+const originalStream = bitstream.stream
+```
+
+You may write bits into the stream with `copyBits()`:
+
+```js
+const source = new Bitstream (nalu)
+/* empty bitstream, same size as source */
+const dest = new Bitstream(source.remaining) 
+const startAtBit = 0
+const copyBitCount = source.remaining
+dest.copyBits(source, startAtBit, copyBitCount)
+```
 
 #### NALUStream
 

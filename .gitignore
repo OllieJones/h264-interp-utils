@@ -109,6 +109,8 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+# test data too big for repo
+**/__big_data__
 
 # git files for merge conflict resolution.
 **/*.orig

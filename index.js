@@ -32,13 +32,13 @@ export class Slice {
     this.first_mb_in_slice = bitstream.ue_v()
     this.slice_type = bitstream.ue_v()
     this.pic_parameter_set_id = bitstream.ue_v()
-    if (avcc && avcc.pps.length > this.pic_parameter_set_id) {
+    if (avcc && avcc.ppsDecoded[this.pic_parameter_set_id]) {
       const pps = avcc.ppsDecoded[this.pic_parameter_set_id]
       if (pps.separate_colour_plane_flag) {
         this.colour_plane_id = bitstream.u_2()
       }
       const seq_parameter_set_id = pps.seq_parameter_set_id
-      if (avcc.sps.length > seq_parameter_set_id) {
+      if (avcc && avcc.spsDecoded[seq_parameter_set_id]) {
         const sps = avcc.spsDecoded[seq_parameter_set_id]
         this.frame_num = bitstream.u(sps.log2_max_frame_num_minus4 + 4)
       }
@@ -49,6 +49,8 @@ export class Slice {
 export class SPS {
   constructor (SPS) {
     const bitstream = new Bitstream(SPS)
+    this.bitstream = bitstream
+    this.buffer = bitstream.buffer
 
     const forbidden_zero_bit = bitstream.u_1()
     if (forbidden_zero_bit) throw new Error('NALU error: invalid NALU header')
@@ -238,6 +240,10 @@ export class SPS {
     this.success = true
   }
 
+  get stream () {
+    return this.bitstream.stream
+  }
+
   get profile_compatibility () {
     let v = this.constraint_set0_flag << 7
     v |= this.constraint_set1_flag << 6
@@ -356,28 +362,30 @@ export class PPS {
 export class Bitstream {
   /**
    * Construct a bitstream
-   * @param stream  Buffer containing the stream
-   * @param max  Length, in BITS, of stream  (optional)
+   * @param stream  Buffer containing the stream, or length in bits
    */
-  constructor (stream, max) {
-    const buf = new Uint8Array(stream, 0, stream.byteLength)
-    this.buffer = new Uint8Array(stream.byteLength)
-    let p = 0
-    let q = 0
-    this.buffer[q++] = stream[p++]
-    this.buffer[q++] = stream[p++]
-    /* emulation prevention:  00 00 03  means 00 00 */
-    while (p < stream.byteLength) {
-      if (buf[p - 2] === 0 && buf[p - 1] === 0 && buf[p] === 3) p++
-      else this.buffer[q++] = stream[p++]
-    }
+  constructor (stream) {
     this.ptr = 0
-    this.max = max || (q << 3)
+    if (typeof stream === 'number') {
+      this.buffer = new Uint8Array((stream + 7) >> 3)
+      this.originalByteLength = this.buffer.byteLength
+      this.max = stream
+    } else if (typeof stream === 'undefined') {
+      this.buffer = new Uint8Array(8192)
+      this.originalByteLength = this.buffer.byteLength
+      this.max = 8192 << 3
+    } else {
+      const buf = new Uint8Array(stream, 0, stream.byteLength)
+      this.originalByteLength = buf.byteLength
+      this.deemulated = this.hasEmulationPrevention(buf)
+      this.buffer = this.deemulated ? this.deemulate(buf) : stream
+      this.max = (this.buffer.byteLength << 3)
+    }
   }
 
   /**
    * utility  / debugging function to examine next 16 bits of stream
-   * @returns {number} Remaining unconsumed bits in the stream
+   * @returns {string} Remaining unconsumed bits in the stream
    * (Careful: getters cannot have side-effects like advancing a pointer)
    */
   get peek16 () {
@@ -405,16 +413,7 @@ export class Bitstream {
         nibble = 0
       }
     }
-    const result = bitstrings.join(' ') + ' ' + hexstrings.join('')
-    return result
-  }
-
-  /**
-   * get the NAL unit type at the beginning of this Bitstream.
-   * @returns {number}
-   */
-  get nalUnitType () {
-    return this.buffer[0] & 0x1f
+    return bitstrings.join(' ') + ' ' + hexstrings.join('')
   }
 
   /**
@@ -433,12 +432,104 @@ export class Bitstream {
     return this.ptr
   }
 
+  get stream () {
+    return this.deemulated ? this.reemulate(this.buffer) : this.buffer
+  }
+
+  /**
+   * add emulation prevention bytes
+   * @param {Uint8Array} buf
+   * @returns {Uint8Array}
+   */
+  reemulate (buf) {
+    const size = Math.floor(this.originalByteLength * 1.2)
+    const stream = new Uint8Array(size)
+    const len = buf.byteLength - 1
+    let q = 0
+    let p = 0
+    stream[p++] = buf[q++]
+    stream[p++] = buf[q++]
+    while (q < len) {
+      if (buf[q - 2] === 0 && buf[q - 1] === 0 && buf[q] <= 3) {
+        stream[p++] = 3
+        stream[p++] = buf[q++]
+      }
+      stream[p++] = buf[q++]
+    }
+    stream[p++] = buf[q++]
+    return stream.subarray(0, p)
+  }
+
+  hasEmulationPrevention (stream) {
+    /* maybe no need to remove emulation protection? scan for 00 00 */
+    for (let i = 1; i < stream.byteLength; i++) {
+      if (stream[i - 1] === 0 && stream[i] === 0) {
+        return true
+      }
+    }
+    return false
+  }
+  /**
+   * remove the emulation prevention bytes
+   * @param {Uint8Array} stream
+   * @returns {Uint8Array}
+   */
+  deemulate (stream) {
+    const buf = new Uint8Array(stream.byteLength)
+    let p = 0
+    let q = 0
+    const len = stream.byteLength - 1
+    buf[q++] = stream[p++]
+    buf[q++] = stream[p++]
+    /* remove emulation prevention:  00 00 03 00  means 00 00 00, 00 00 03 01 means 00 00 01 */
+    while (p < len) {
+      if (stream[p - 2] === 0 && stream[p - 1] === 0 && stream[p] === 3 && stream[p] <= 3) p++
+      else buf[q++] = stream[p++]
+    }
+    buf[q++] = stream[p++]
+    return buf.subarray(0, q)
+  }
+
+  copyBits (from, ptr, count) {
+    this.deemulated = from.deemulated
+    if (this.ptr + count > this.max) {
+      /* reallocate, exponential length growth */
+      const newSize = Math.floor((this.max + count) * 1.25)
+      const newBuf = new Uint8Array((newSize + 7) >>> 3)
+      this.max = newSize
+      newBuf.set(this.buffer)
+    }
+    const savedFromPtr = from.ptr
+    from.ptr = ptr
+    for (let i = 0; i < count; i++) {
+      /* TODO slow */
+      const b = from.u_1()
+      this.put_1(b)
+    }
+    from.ptr = savedFromPtr
+  }
+
+  /**
+   * put one bit
+   */
+  put_1 (b) {
+    if (this.ptr + 1 > this.max) throw new Error('NALUStream error: bitstream exhausted')
+    const p = (this.ptr >> 3)
+    const o = 0x07 - (this.ptr & 0x07)
+    const val = b << o
+    const mask = ~(1 << o)
+    this.buffer[p] = (this.buffer[p] & mask) | val
+    this.ptr++
+    return val
+  }
+
   /**
    * get one bit
    * @returns {number}
    */
   u_1 () {
-    if (this.ptr + 1 >= this.max) throw new Error('NALUStream error: bitstream exhausted')
+    if (this.ptr + 1 > this.max)
+      throw new Error('NALUStream error: bitstream exhausted')
     const p = (this.ptr >> 3)
     const o = 0x07 - (this.ptr & 0x07)
     const val = (this.buffer[p] >> o) & 0x01
