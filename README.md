@@ -32,7 +32,7 @@ Installation with other package managers works similarly.
 
 The original reason to develop this package is to allow the reconstruction of
 `'avcC'` atom data from 
-[MediaRecorder](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder)-emitted 
+[MediaRecorder](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder) -emitted 
 data. When using MediaRecorder with a MIME type like `video/webm; codecs="avc1.42C01E"`,
 it generates a data stream without placing 
 codec-private data in 
@@ -67,7 +67,11 @@ const H264Util = require('h264-interp-utils')
 The Bitstream object allows its user to retrieve data bit-by-bit from arrays of data.
 It's used to parse NALUs, and supports the H.264 variable-length
 exponential Golomb coding for 
-signed and unsigned integers.
+signed and unsigned integers. 
+
+You give the constructor an array containing a single NALU, 
+without any leading NALU delimiter.
+
 
 ```js
 const bitstream = new H264Util.Bitstream(array)
@@ -87,6 +91,10 @@ Likewise, you may retrieve the number of bits already consumed with `const bitsU
 
 For debugging convenience, the `bitstream.peek16` getter shows, in a text string, the next 16 bits.
 
+Bitstream's constructor removes 
+[*emulation prevention bytes*](https://en.wikipedia.org/wiki/Network_Abstraction_Layer#NAL_Units_in_Byte-Stream_Format_Use)
+from the array.
+
 #### NALUStream
 
 NALUStream accepts a buffer containing a sequence of NALUs.
@@ -95,7 +103,7 @@ They may be in
 * packet format, separated by 4, 3, or 2-byte NALU lengths
 * AnnexB stream format, separated by four-byte `00 00 00 01` or three byte `00 00 01` delimiters.
 
-NALUStream's constructor takes an array and an options object.
+NALUStream's constructor takes both an array and an options object.
 The options object many contain any of these properties:
 
 * `type`, if present, has the value `'packet'` or `'annexB'`.
@@ -241,10 +249,33 @@ const mime = avcCObject.MIME
 const codecPrivateDataArray = avCObject.avcC
 ```
 
+#### Slice
+
+Slice accepts I-frame (type 5) and P-frame (type 1) NALUs,
+and offers a few properties from decoding them.
+
+To construct a Slice object, give it an array containing a NALU,
+and optionally an AvcC object created from the same data stream.
+
+(It throws an error when you give it a NALU that's not type 1 or 5.)
+
+```js
+const slice = new H264Util.Slice(nalu, avcC)
+```
+
+Some of its useful properties are:
+
+* `first_mb_in_slice`: the number of the first macroblock in the present slice.
+  This is zero for the first slice of a new frame.
+* `slice_type`: The [type](https://en.wikipedia.org/wiki/Video_compression_picture_types#Macroblocks) of this slice. 0,5: P slice. 1,6: B slice, 2,7: I slice, 3, 8: SP slice, 4,9: SI slice.
+* `frame_num`: The number of this frame in sequence after the most recent I-frame. This is only 
+  available if you provide an `avcC` object.
+* `pic_parameter_set_id`: the index of the PPS describing this slice
+
+
 ## Still to do
 
 * Rework Bitstream and NALUStream to handle Javascript streams, not just static arrays of data.
-* Parse more types of NALUs.
 
 ## Credits
 

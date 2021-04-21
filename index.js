@@ -18,6 +18,34 @@ export const chromaFormatValues = {
   3: 'YUV444'
 }
 
+export class Slice {
+  constructor (slice, avcc) {
+    /* we won't parse out much of this, so use subarray */
+    const bitstream = new Bitstream(slice.subarray(0, 10))
+
+    const forbidden_zero_bit = bitstream.u_1()
+    if (forbidden_zero_bit) throw new Error('NALU error: invalid NALU header')
+    this.nal_ref_id = bitstream.u_2()
+    this.nal_unit_type = bitstream.u(5)
+    if (this.nal_unit_type !== 1 && this.nal_unit_type !== 5)
+      throw new Error('Slice error: not slice_layer_without_partitioning')
+    this.first_mb_in_slice = bitstream.ue_v()
+    this.slice_type = bitstream.ue_v()
+    this.pic_parameter_set_id = bitstream.ue_v()
+    if (avcc && avcc.pps.length > this.pic_parameter_set_id) {
+      const pps = avcc.ppsDecoded[this.pic_parameter_set_id]
+      if (pps.separate_colour_plane_flag) {
+        this.colour_plane_id = bitstream.u_2()
+      }
+      const seq_parameter_set_id = pps.seq_parameter_set_id
+      if (avcc.sps.length > seq_parameter_set_id) {
+        const sps = avcc.spsDecoded[seq_parameter_set_id]
+        this.frame_num = bitstream.u(sps.log2_max_frame_num_minus4 + 4)
+      }
+    }
+  }
+}
+
 export class SPS {
   constructor (SPS) {
     const bitstream = new Bitstream(SPS)
@@ -508,6 +536,8 @@ export class AvcC {
     this.strict = true
     this.sps = []
     this.pps = []
+    this.spsDecoded = {}
+    this.ppsDecoded = {}
     this.configurationVersion = 1
     this.profileIndication = 0xff
     this.profileCompatibility = 0xff
@@ -524,13 +554,17 @@ export class AvcC {
       stream = options.naluStream ? options.naluStream : new NALUStream(options.bitstream, options)
       this.boxSizeMinusOne = stream.boxSizeMinusOne
       for (const nalu of stream) {
+        let pps
+        let sps
         switch (nalu[0] & 0x1f) {
           case 7:
-            this.unpackSps(nalu)
+            sps = this.unpackSps(nalu)
+            this.spsDecoded[sps.seq_parameter_set_id] = sps
             this.sps.push(nalu)
             break
           case 8:
-            this.unpackPps(nalu)
+            pps = this.unpackPps(nalu)
+            this.ppsDecoded[pps.pic_parameter_set_id] = pps
             this.pps.push(nalu)
             break
         }
@@ -539,10 +573,12 @@ export class AvcC {
       if (this.strict) throw new Error('avcC error: bitstream must contain both SPS and PPS')
     } else if (options.sps && options.pps) {
       /* construct avcC from sps and pps */
-      this.unpackSps(options.sps)
-      this.unpackPps(options.pps)
+      const sps = this.unpackSps(options.sps)
       this.sps.push(options.sps)
+      this.spsDecoded[sps.seq_parameter_set_id] = sps
+      const pps = this.unpackPps(options.pps)
       this.pps.push(options.pps)
+      this.ppsDecoded[pps.pic_parameter_set_id] = pps
     } else if (options.avcC) {
       /* construct it from avcC stream */
       this.cacheAvcC = options.avcC
@@ -556,21 +592,21 @@ export class AvcC {
   }
 
   /**
-   * setter for the avcC object
-   * @param {Uint8Array} avcC
-   */
-  set avcC (avcC) {
-    this.cacheAvcC = avcC
-    this.parseAvcC(this.cacheAvcC)
-  }
-
-  /**
    * getter for the avcC object
    * @returns {Uint8Array}
    */
   get avcC () {
     this.cacheAvcC = this.packAvcC()
     return this.cacheAvcC
+  }
+
+  /**
+   * setter for the avcC object
+   * @param {Uint8Array} avcC
+   */
+  set avcC (avcC) {
+    this.cacheAvcC = avcC
+    this.parseAvcC(this.cacheAvcC)
   }
 
   get hex () {
@@ -588,88 +624,6 @@ export class AvcC {
     f.push(AvcC.byte2hex(this.profileCompatibility).toUpperCase())
     f.push(AvcC.byte2hex(this.avcLevelIndication).toUpperCase())
     return f.join('')
-  }
-
-  parseAvcC (inbuff) {
-    const buf = new Uint8Array(inbuff, 0, inbuff.byteLength)
-    const buflen = buf.byteLength
-    if (buflen < 10) throw new Error('avcC error: object too short')
-    let ptr = 0
-    this.configurationVersion = buf[ptr++]
-    if (this.strict && this.configurationVersion !== 1)
-      throw new Error(`avcC error: configuration version must be 1: ${this.configurationVersion}`)
-    this.profileIndication = buf[ptr++]
-    this.profileCompatibility = buf[ptr++]
-    this.avcLevelIndication = buf[ptr++]
-    this.boxSizeMinusOne = buf[ptr++] & 3
-    let nalen = buf[ptr++] & 0x1f
-    ptr = this.captureNALUs(buf, ptr, nalen, this.sps)
-    nalen = buf[ptr++]
-    ptr = this.captureNALUs(buf, ptr, nalen, this.pps)
-    if (ptr < buflen) this.extradata = buf.subarray(ptr, buflen)
-    ptr = buflen
-    return inbuff
-  }
-
-  captureNALUs (buf, ptr, count, nalus) {
-    nalus.length = 0
-    if (this.strict && count <= 0)
-      throw new Error('avcC error: at least one NALU is required')
-    try {
-      for (let i = 0; i < count; i++) {
-        const len = AvcC.readUInt16BE(buf, ptr)
-        ptr += 2
-        const nalu = buf.slice(ptr, ptr + len)
-        nalus.push(nalu)
-        ptr += len
-      }
-    } catch (ex) {
-      throw new Error(ex)
-    }
-    return ptr
-  }
-
-  unpackSps (spsData) {
-    const sps = new SPS(spsData)
-    this.profileIndication = sps.profile_idc
-    this.profileCompatibility = sps.profile_compatibility
-    this.avcLevelIndication = sps.level_idc
-    if (sps.cropRect) this.cropRect = sps.cropRect
-    if (sps.picWidth) this.picWidth = sps.picWidth
-    if (sps.picHeight) this.picHeight = sps.picHeight
-    if (sps.framesPerSecond) this.framesPerSecond = sps.framesPerSecond
-    return sps
-  }
-
-  unpackPps (ppsData) {
-    const pps = new PPS(ppsData)
-    this.interlaced = pps.interlaced
-    this.entropyCodingMode = pps.entropyCodingMode
-  }
-
-  /**
-   * pack the avcC atom bitstream from the information in the class
-   * @returns {Uint8Array}
-   */
-  packAvcC () {
-    let length = 6
-    for (let spsi = 0; spsi < this.sps.length; spsi++) length += 2 + this.sps[spsi].byteLength
-    length += 1
-    for (let ppsi = 0; ppsi < this.pps.length; ppsi++) length += 2 + this.pps[ppsi].byteLength
-    if (this.extradata) length += this.extradata.byteLength
-    const buf = new Uint8Array(length)
-    let p = 0
-    buf[p++] = this.configurationVersion
-    buf[p++] = this.profileIndication
-    buf[p++] = this.profileCompatibility
-    buf[p++] = this.avcLevelIndication
-    if (this.strict && (this.boxSizeMinusOne < 0 || this.boxSizeMinusOne > 3))
-      throw new Error('avcC error: bad boxSizeMinusOne value: ' + this.boxSizeMinusOne)
-    buf[p++] = (0xfc | (0x03 & this.boxSizeMinusOne))
-    p = AvcC.appendNALUs(buf, p, this.sps, 0x1f)
-    p = AvcC.appendNALUs(buf, p, this.pps, 0xff)
-    if (p < length) buf.set(this.extradata, p)
-    return buf
   }
 
   /**
@@ -720,6 +674,88 @@ export class AvcC {
 
   static byte2hex (val) {
     return ('00' + val.toString(16)).slice(-2)
+  }
+
+  parseAvcC (inbuff) {
+    const buf = new Uint8Array(inbuff, 0, inbuff.byteLength)
+    const buflen = buf.byteLength
+    if (buflen < 10) throw new Error('avcC error: object too short')
+    let ptr = 0
+    this.configurationVersion = buf[ptr++]
+    if (this.strict && this.configurationVersion !== 1)
+      throw new Error(`avcC error: configuration version must be 1: ${this.configurationVersion}`)
+    this.profileIndication = buf[ptr++]
+    this.profileCompatibility = buf[ptr++]
+    this.avcLevelIndication = buf[ptr++]
+    this.boxSizeMinusOne = buf[ptr++] & 3
+    let nalen = buf[ptr++] & 0x1f
+    ptr = this.captureNALUs(buf, ptr, nalen, this.sps)
+    nalen = buf[ptr++]
+    ptr = this.captureNALUs(buf, ptr, nalen, this.pps)
+    if (ptr < buflen) this.extradata = buf.subarray(ptr, buflen)
+    return inbuff
+  }
+
+  captureNALUs (buf, ptr, count, nalus) {
+    nalus.length = 0
+    if (this.strict && count <= 0)
+      throw new Error('avcC error: at least one NALU is required')
+    try {
+      for (let i = 0; i < count; i++) {
+        const len = AvcC.readUInt16BE(buf, ptr)
+        ptr += 2
+        const nalu = buf.slice(ptr, ptr + len)
+        nalus.push(nalu)
+        ptr += len
+      }
+    } catch (ex) {
+      throw new Error(ex)
+    }
+    return ptr
+  }
+
+  unpackSps (spsData) {
+    const sps = new SPS(spsData)
+    this.profileIndication = sps.profile_idc
+    this.profileCompatibility = sps.profile_compatibility
+    this.avcLevelIndication = sps.level_idc
+    if (sps.cropRect) this.cropRect = sps.cropRect
+    if (sps.picWidth) this.picWidth = sps.picWidth
+    if (sps.picHeight) this.picHeight = sps.picHeight
+    if (sps.framesPerSecond) this.framesPerSecond = sps.framesPerSecond
+    return sps
+  }
+
+  unpackPps (ppsData) {
+    const pps = new PPS(ppsData)
+    this.interlaced = pps.interlaced
+    this.entropyCodingMode = pps.entropyCodingMode
+    return pps
+  }
+
+  /**
+   * pack the avcC atom bitstream from the information in the class
+   * @returns {Uint8Array}
+   */
+  packAvcC () {
+    let length = 6
+    for (let spsi = 0; spsi < this.sps.length; spsi++) length += 2 + this.sps[spsi].byteLength
+    length += 1
+    for (let ppsi = 0; ppsi < this.pps.length; ppsi++) length += 2 + this.pps[ppsi].byteLength
+    if (this.extradata) length += this.extradata.byteLength
+    const buf = new Uint8Array(length)
+    let p = 0
+    buf[p++] = this.configurationVersion
+    buf[p++] = this.profileIndication
+    buf[p++] = this.profileCompatibility
+    buf[p++] = this.avcLevelIndication
+    if (this.strict && (this.boxSizeMinusOne < 0 || this.boxSizeMinusOne > 3))
+      throw new Error('avcC error: bad boxSizeMinusOne value: ' + this.boxSizeMinusOne)
+    buf[p++] = (0xfc | (0x03 & this.boxSizeMinusOne))
+    p = AvcC.appendNALUs(buf, p, this.sps, 0x1f)
+    p = AvcC.appendNALUs(buf, p, this.pps, 0xff)
+    if (p < length) buf.set(this.extradata, p)
+    return buf
   }
 }
 
@@ -777,6 +813,41 @@ export class NALUStream {
    */
   get packetCount () {
     return this.iterate()
+  }
+
+  /**
+   * Returns an array of NALUs
+   * NOTE WELL: this yields subarrays of the NALUs in the stream, not copies.
+   * so changing the NALU contents also changes the stream. Beware.
+   * @returns {[]}
+   */
+  get packets () {
+    const pkts = []
+    this.iterate((buf, first, last) => {
+      const pkt = buf.subarray(first, last)
+      pkts.push(pkt)
+    })
+    return pkts
+  }
+
+  /**
+   * read an n-byte unsigned number
+   * @param buff
+   * @param ptr
+   * @param boxSize
+   * @returns {number}
+   */
+  static readUIntNBE (buff, ptr, boxSize) {
+    if (!boxSize) throw new Error('readUIntNBE error: need a boxsize')
+    let result = 0 | 0
+    for (let i = ptr; i < ptr + boxSize; i++) {
+      result = ((result << 8) | buff[i])
+    }
+    return result
+  }
+
+  static array2hex (array) { // buffer is an ArrayBuffer
+    return Array.prototype.map.call(new Uint8Array(array, 0, array.byteLength), x => ('00' + x.toString(16)).slice(-2)).join(' ')
   }
 
   /**
@@ -844,21 +915,6 @@ export class NALUStream {
         }
       }
     }
-  }
-
-  /**
-   * Returns an array of NALUs
-   * NOTE WELL: this yields subarrays of the NALUs in the stream, not copies.
-   * so changing the NALU contents also changes the stream. Beware.
-   * @returns {[]}
-   */
-  get packets () {
-    const pkts = []
-    this.iterate((buf, first, last) => {
-      const pkt = buf.subarray(first, last)
-      pkts.push(pkt)
-    })
-    return pkts
   }
 
   /**
@@ -1004,25 +1060,5 @@ export class NALUStream {
     }
     if (this.strict) throw new Error('NALUStream error: cannot determine stream type or box size')
     return { type: 'unknown', boxSize: -1 }
-  }
-
-  /**
-   * read an n-byte unsigned number
-   * @param buff
-   * @param ptr
-   * @param boxSize
-   * @returns {number}
-   */
-  static readUIntNBE (buff, ptr, boxSize) {
-    if (!boxSize) throw new Error('readUIntNBE error: need a boxsize')
-    let result = 0 | 0
-    for (let i = ptr; i < ptr + boxSize; i++) {
-      result = ((result << 8) | buff[i])
-    }
-    return result
-  }
-
-  static array2hex (array) { // buffer is an ArrayBuffer
-    return Array.prototype.map.call(new Uint8Array(array, 0, array.byteLength), x => ('00' + x.toString(16)).slice(-2)).join(' ')
   }
 }
