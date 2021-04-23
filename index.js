@@ -19,10 +19,13 @@ export const chromaFormatValues = {
 }
 
 export class Slice {
-  constructor (slice, avcc) {
+  constructor (slice, avcc, options) {
     /* we won't parse out much of this, so use subarray */
-    const bitstream = new Bitstream(slice.subarray(0, 10))
-
+    const bitstream = options?.all
+      ? new Bitstream(slice)
+      : new Bitstream(slice.subarray(0, 10))
+    this.bitstream = bitstream
+    this.nalu = slice
     const forbidden_zero_bit = bitstream.u_1()
     if (forbidden_zero_bit) throw new Error('NALU error: invalid NALU header')
     this.nal_ref_id = bitstream.u_2()
@@ -31,7 +34,9 @@ export class Slice {
       throw new Error('Slice error: not slice_layer_without_partitioning')
     this.first_mb_in_slice = bitstream.ue_v()
     this.slice_type = bitstream.ue_v()
+    this.ppsIdPtr = bitstream.ptr
     this.pic_parameter_set_id = bitstream.ue_v()
+    this.ppsIdLen = bitstream.ptr - this.ppsIdPtr
     if (avcc && avcc.ppsDecoded[this.pic_parameter_set_id]) {
       const pps = avcc.ppsDecoded[this.pic_parameter_set_id]
       if (pps.separate_colour_plane_flag) {
@@ -43,6 +48,21 @@ export class Slice {
         this.frame_num = bitstream.u(sps.log2_max_frame_num_minus4 + 4)
       }
     }
+  }
+
+  /**
+   * Set the pic_parameter_set_id in a slice to a desired number.
+   * This works around a bizarro bug in Chrome(ium)
+   * @returns {Uint8Array}
+   */
+  setPPSId (ppsId = 0) {
+    if (this.pic_parameter_set_id === 0) return this.nalu
+    const sourceLength = this.bitstream.buffer.byteLength << 3
+    const target = new Bitstream(sourceLength)
+    target.copyBits(this.bitstream, 0, this.ppsIdPtr)
+    target.put_ue_v(ppsId)
+    target.copyBits(this.bitstream, this.ppsIdPtr + this.ppsIdLen, sourceLength - (this.ppsIdPtr + this.ppsIdLen))
+    return target.stream
   }
 }
 
@@ -469,6 +489,7 @@ export class Bitstream {
     }
     return false
   }
+
   /**
    * remove the emulation prevention bytes
    * @param {Uint8Array} stream
@@ -490,29 +511,35 @@ export class Bitstream {
     return buf.subarray(0, q)
   }
 
-  copyBits (from, ptr, count) {
+  reallocate (size) {
+    if (this.ptr + size <= this.max) return
+    const newSize = (0xff + Math.floor((this.max + size) * 1.25)) & ~0xff
+    const newBuf = new Uint8Array((newSize + 7) >>> 3)
+    this.max = newSize
+    newBuf.set(this.buffer)
+    this.buffer = newBuf
+  }
+
+  copyBits (from, ptr, count, to) {
     this.deemulated = from.deemulated
-    if (this.ptr + count > this.max) {
-      /* reallocate, exponential length growth */
-      const newSize = Math.floor((this.max + count) * 1.25)
-      const newBuf = new Uint8Array((newSize + 7) >>> 3)
-      this.max = newSize
-      newBuf.set(this.buffer)
-    }
+    this.reallocate(count)
     const savedFromPtr = from.ptr
+    const savedToPtr = this.ptr
     from.ptr = ptr
+    if (typeof to === 'number') this.ptr = to
     for (let i = 0; i < count; i++) {
       /* TODO slow */
       const b = from.u_1()
-      this.put_1(b)
+      this.put_u_1(b)
     }
     from.ptr = savedFromPtr
+    if (typeof to === 'number') this.ptr = savedToPtr
   }
 
   /**
    * put one bit
    */
-  put_1 (b) {
+  put_u_1 (b) {
     if (this.ptr + 1 > this.max) throw new Error('NALUStream error: bitstream exhausted')
     const p = (this.ptr >> 3)
     const o = 0x07 - (this.ptr & 0x07)
@@ -595,17 +622,54 @@ export class Bitstream {
     return val - 1
   }
 
+  put_u (val, count) {
+    this.reallocate(count)
+    if (count === 0) return
+    while (count > 0) {
+      count--
+      this.put_u_1((val >> count) & 0x01)
+    }
+  }
+
+  /**
+   * Put an exponential-Golomb coded unsigned integer into the bitstream
+   * https://en.wikipedia.org/wiki/Exponential-Golomb_coding
+   * @param {number} val to insert
+   * @returns {number} count of bits inserted
+   */
+  put_ue_v (val) {
+    const v = val + 1
+    let v1 = v
+    let z = -1
+    do {
+      z++
+      v1 = v1 >> 1
+    } while (v1 !== 0)
+    this.put_u(0, z)
+    this.put_u(v, z + 1)
+    return z + z + 1
+  }
+
   /**
    * get a signed h.264-style variable bit number
    * in exponential Golomb format
-   * @returns {number}
+   * @returns {number} (without negative zeros)
    */
   se_v () {
     const codeword = this.ue_v()
-    if (codeword & 0x01) {
-      return 1 + (codeword >> 1)
-    }
-    return -(codeword >> 1)
+    const result = codeword & 0x01 ? 1 + (codeword >> 1) : -(codeword >> 1)
+    return (result === 0) ? 0 : result
+  }
+
+  /**
+   * Put an exponential-Golomb coded signed integer into the bitstream
+   * https://en.wikipedia.org/wiki/Exponential-Golomb_coding#Extension_to_negative_numbers
+   * @param {number} val to insert
+   * @returns {number} count of bits inserted
+   */
+  put_se_v (val) {
+    const cw = (val <= 0) ? (-val) << 1 : (val << 1) -1
+    return this.put_ue_v(cw)
   }
 }
 
@@ -720,10 +784,10 @@ export class AvcC {
   /**
    * put NALU data (sps or pps) into output buffer
    * @param {Uint8Array} buf buffer
-   * @param p {integer} pointer to buf
+   * @param p {number} pointer to buf
    * @param nalus {array}  sps[] or pps[]
-   * @param mask {integer} mask for setting bits in nalu-count field
-   * @returns {integer} updated pointer.
+   * @param mask {number} mask for setting bits in nalu-count field
+   * @returns {number} updated pointer.
    */
   static appendNALUs (buf, p, nalus, mask) {
     const setBits = ~mask
@@ -1064,7 +1128,7 @@ export class NALUStream {
    * iterator helper for delimited streams either 00 00 01  or 00 00 00 01
    * @param buf
    * @param p
-   * @returns {{s: *, e: *, n: *}|{s: *, e: *, n: number}|{s: *, e: ((string: (string | NodeJS.ArrayBufferView | ArrayBuffer | SharedArrayBuffer), encoding?: BufferEncoding) => number) | number, n: number}}
+   * @returns iterator
    */
   nextAnnexBPacket (buf, p) {
     const buflen = buf.byteLength

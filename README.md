@@ -100,7 +100,21 @@ You may retrieve the stream, with emulation prevention bytes,  with
 const originalStream = bitstream.stream
 ```
 
-You may write bits into the stream with `copyBits()`:
+You may write bits into the stream:
+
+```js
+const dest = new Bitstream (4096)
+dest.put_u_1(1)           /* one bit */
+dest.put_u_1(0)           /* another bit */
+const threebits = 6  
+dest.put_u(threebits, 3)  /* three bits from a number */
+const val = 7
+const bitcount = dest.put_ue_v(val)  /* exponential Golomb coded value, unsigned */
+const bitcount = dest.put_se_v(-val) /* exponential Golomb coded value, signed */
+
+```
+
+You may copy bits from some other stream into the stream with `copyBits()`:
 
 ```js
 const source = new Bitstream (nalu)
@@ -287,6 +301,15 @@ Some of its useful properties are:
 * `frame_num`: The number of this frame in sequence after the most recent I-frame. This is only 
   available if you provide an `avcC` object.
 * `pic_parameter_set_id`: the index of the PPS describing this slice
+
+It is sometimes necessary to change a slice's `pic_parameter_set_id`. (A bug in Chrome's encoder makes it use
+multiple different values.)
+
+```js
+const fixedNalu = slice.setPPSId(0)
+const fixedSlice = new H264Util.Slice(nalu, avcC)
+const ppsId = fixedSlice.pic_parameter_set_id /* will be 0 */
+```
 
 
 ## Still to do
