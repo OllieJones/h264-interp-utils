@@ -1,4 +1,4 @@
-/* eslint-disable camelcase,curly */
+/* eslint-disable camelcase,curly,no-fallthrough */
 
 export const profileNames = {
   66: 'BASELINE',
@@ -56,7 +56,7 @@ export class Slice {
    * @returns {Uint8Array}
    */
   setPPSId (ppsId = 0) {
-    if (this.pic_parameter_set_id === 0) return this.nalu
+    if (this.pic_parameter_set_id === ppsId) return this.nalu
     const sourceLength = this.bitstream.buffer.byteLength << 3
     const target = new Bitstream(sourceLength)
     target.copyBits(this.bitstream, 0, this.ppsIdPtr)
@@ -376,10 +376,11 @@ export class PPS {
   }
 }
 
+// noinspection DuplicatedCode
 /**
- * Tools for handling H.264 bitstream issues.
+ * Tools for handling general bitstream issues.
  */
-export class Bitstream {
+export class RawBitstream {
   /**
    * Construct a bitstream
    * @param stream  Buffer containing the stream, or length in bits
@@ -395,11 +396,9 @@ export class Bitstream {
       this.originalByteLength = this.buffer.byteLength
       this.max = 8192 << 3
     } else {
-      const buf = new Uint8Array(stream, 0, stream.byteLength)
-      this.originalByteLength = buf.byteLength
-      this.deemulated = this.hasEmulationPrevention(buf)
-      this.buffer = this.deemulated ? this.deemulate(buf) : stream
+      this.buffer = new Uint8Array(stream, 0, stream.byteLength)
       this.max = (this.buffer.byteLength << 3)
+      this.originalByteLength = stream.byteLength
     }
   }
 
@@ -452,8 +451,328 @@ export class Bitstream {
     return this.ptr
   }
 
+  seek (pos = 0) {
+    if (pos > this.max) throw new Error('cannot seek beyond end')
+    this.ptr = pos
+  }
+
+  reallocate (size) {
+    if (this.ptr + size <= this.max) return
+    const newSize = (0xff + Math.floor((this.max + size) * 1.25)) & ~0xff
+    const newBuf = new Uint8Array((newSize + 7) >>> 3)
+    this.max = newSize
+    newBuf.set(this.buffer)
+    this.buffer = newBuf
+  }
+
+  /**
+   * copy bits from some other bitstream to this one
+   * @param {RawBitstream} from the source of the copy
+   * @param {number} ptr the starting bit position of the copy in "from"
+   * @param {number} count the number of bits to copy
+   * @param {number|undefined} to the starting bit position to receive the copy, or the current pointer
+   */
+  copyBits (from, ptr, count, to) {
+    /* this is a little intricate for the sake of performance */
+    this.reallocate(count)
+    /* handle pointer saving. */
+    const savedFromPtr = from.ptr
+    const savedToPtr = this.ptr
+    from.ptr = ptr
+    if (typeof to === 'number') this.ptr = to
+
+    /* split the copy into a starting fragment of < 8 bits,
+     * a multiple of 8 bits,
+     * and an ending fragment of less than 8 bits
+     */
+    const firstFragLen = (8 - this.ptr) & 0x07
+    const lastFragLen = (count - firstFragLen) & 0x07
+    const byteCopyLen = count - (firstFragLen + lastFragLen)
+
+    /* copy first fragment bit by bit */
+    for (let i = 0; i < firstFragLen; i++) {
+      const b = from.u_1()
+      this.put_u_1(b)
+    }
+
+    /* copy whole bytes byte-by-byte */
+    const thisbuf = this.buffer
+    const frombuf = from.buffer
+    let q = this.ptr >> 3
+    const byteLen = byteCopyLen >> 3
+    const lshift = from.ptr & 0x07
+    if (lshift === 0) {
+      /* byte-aligned source and dest */
+      let r = from.ptr >> 3
+
+      /* four-way loop unroll */
+      let n = byteLen & 0x03
+      while (n-- > 0) {
+        thisbuf[q++] = frombuf[r++]
+      }
+      n = byteLen >> 2
+      while (n-- > 0) {
+        thisbuf[q++] = frombuf[r++]
+        thisbuf[q++] = frombuf[r++]
+        thisbuf[q++] = frombuf[r++]
+        thisbuf[q++] = frombuf[r++]
+      }
+    } else {
+      /* unaligned source, retrieve it with masks and shifts */
+      const rshift = 8 - lshift
+      const rmask = (0xff << rshift) & 0xff
+      const lmask = (~rmask) & 0xff
+      let p = (from.ptr >> 3) + 1
+      let lside = frombuf[p - 1]
+      let rside = frombuf[p]
+
+      /* 8-way loop unroll.
+       * This is a hot path when changing pic_parameter_set_ids in Slices. */
+      let n = byteLen & 0x07
+      while (n-- > 0) {
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+      }
+      n = byteLen >> 3
+      while (n-- > 0) {
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
+        lside = rside
+        rside = frombuf[++p]
+      }
+    }
+    from.ptr += byteCopyLen
+    this.ptr += byteCopyLen
+
+    /* copy the last fragment bit by bit */
+    for (let i = 0; i < lastFragLen; i++) {
+      const b = from.u_1()
+      this.put_u_1(b)
+    }
+
+    /* restore saved pointers */
+    from.ptr = savedFromPtr
+    if (typeof to === 'number') this.ptr = savedToPtr
+  }
+
+  /**
+   * put one bit
+   */
+  put_u_1 (b) {
+    if (this.ptr + 1 > this.max) throw new Error('NALUStream error: bitstream exhausted')
+    const p = (this.ptr >> 3)
+    const o = 0x07 - (this.ptr & 0x07)
+    const val = b << o
+    const mask = ~(1 << o)
+    this.buffer[p] = (this.buffer[p] & mask) | val
+    this.ptr++
+    return val
+  }
+
+  /**
+   * get one bit
+   * @returns {number}
+   */
+  u_1 () {
+    if (this.ptr + 1 > this.max)
+      throw new Error('NALUStream error: bitstream exhausted')
+    const p = (this.ptr >> 3)
+    const o = 0x07 - (this.ptr & 0x07)
+    const val = (this.buffer[p] >> o) & 0x01
+    this.ptr++
+    return val
+  }
+
+  /**
+   * get two bits
+   * @returns {number}
+   */
+  u_2 () {
+    return (this.u_1() << 1) | (this.u_1())
+  }
+
+  /**
+   * get three bits
+   * @returns {number}
+   */
+  u_3 () {
+    return (this.u_1() << 2) | (this.u_1() << 1) | (this.u_1())
+  }
+
+  /**
+   * get n bits
+   * @param n
+   * @returns {number}
+   */
+  u (n) {
+    if (n === 8) return this.u_8()
+    if (this.ptr + n >= this.max) throw new Error('NALUStream error: bitstream exhausted')
+    let val = 0
+    for (let i = 0; i < n; i++) {
+      val = (val << 1) | this.u_1()
+    }
+    return val
+  }
+
+  /**
+   * get one byte (as an unsigned number)
+   * @returns {number}
+   */
+  u_8 () {
+    if (this.ptr + 8 > this.max) throw new Error('NALUStream error: bitstream exhausted')
+    const o = this.ptr & 0x07
+    if (o === 0) {
+      const val = this.buffer[(this.ptr >> 3)]
+      this.ptr += 8
+      return val
+    } else {
+      const n = 8 - o
+      const rmask = (0xff << n) & 0xff
+      const lmask = (~rmask) & 0xff
+      const p = this.ptr >> 3
+      this.ptr += 8
+      return ((this.buffer[p] & lmask) << o) | ((this.buffer[p + 1] & rmask) >> n)
+    }
+  }
+
+  /**
+   * get an unsigned H.264-style variable-bit number
+   * in exponential Golomb format
+   * @returns {number}
+   */
+  ue_v () {
+    let zeros = 0
+    while (!this.u_1()) zeros++
+    let val = 1 << zeros
+    for (let i = zeros - 1; i >= 0; i--) {
+      val |= (this.u_1() << i)
+    }
+    return val - 1
+  }
+
+  put_u8 (val) {
+    this.reallocate(8)
+    if ((this.ptr & 0x07) === 0) {
+      this.buffer[this.ptr >> 3] = val
+      this.ptr += 8
+      return
+    }
+    this.put_u(val, 8)
+  }
+
+  put_u (val, count) {
+    this.reallocate(count)
+    if (count === 0) return
+    while (count > 0) {
+      count--
+      this.put_u_1((val >> count) & 0x01)
+    }
+  }
+
+  /**
+   * Put an exponential-Golomb coded unsigned integer into the bitstream
+   * https://en.wikipedia.org/wiki/Exponential-Golomb_coding
+   * @param {number} val to insert
+   * @returns {number} count of bits inserted
+   */
+  put_ue_v (val) {
+    const v = val + 1
+    let v1 = v
+    let z = -1
+    do {
+      z++
+      v1 = v1 >> 1
+    } while (v1 !== 0)
+    this.put_u(0, z)
+    this.put_u(v, z + 1)
+    return z + z + 1
+  }
+
+  /**
+   * when done putting into a buffer, mark it complete,
+   * rewind it to the beginning, and shorten its contents,
+   * as if it had just been loaded.
+   * @returns {number} the number of bits in the buffer
+   */
+  put_complete () {
+    const newLength = this.ptr
+    const newByteLength = (newLength + 7) >> 3
+    this.buffer = this.buffer.subarray(0, newByteLength)
+    this.originalByteLength = newByteLength
+    this.max = newLength
+    this.ptr = 0
+    return newLength
+  }
+
+  /**
+   * get a signed h.264-style variable bit number
+   * in exponential Golomb format
+   * @returns {number} (without negative zeros)
+   */
+  se_v () {
+    const codeword = this.ue_v()
+    const result = codeword & 0x01 ? 1 + (codeword >> 1) : -(codeword >> 1)
+    return (result === 0) ? 0 : result
+  }
+
+  /**
+   * Put an exponential-Golomb coded signed integer into the bitstream
+   * https://en.wikipedia.org/wiki/Exponential-Golomb_coding#Extension_to_negative_numbers
+   * @param {number} val to insert
+   * @returns {number} count of bits inserted
+   */
+  put_se_v (val) {
+    const cw = (val <= 0) ? (-val) << 1 : (val << 1) - 1
+    return this.put_ue_v(cw)
+  }
+}
+
+/**
+ * Tools for handling h264 bitstream issues.
+ */
+export class Bitstream extends RawBitstream {
+  /**
+   * Construct a bitstream
+   * @param stream  Buffer containing the stream, or length in bits
+   */
+  constructor (stream) {
+    super(stream)
+    if (typeof stream !== 'number' && typeof stream !== 'undefined') {
+      this.deemulated = this.hasEmulationPrevention(this.buffer)
+      this.buffer = this.deemulated ? this.deemulate(this.buffer) : this.buffer
+      this.max = (this.buffer.byteLength << 3)
+    }
+  }
+
   get stream () {
     return this.deemulated ? this.reemulate(this.buffer) : this.buffer
+  }
+
+  copyBits (from, ptr, count, to) {
+    this.deemulated = from.deemulated
+    super.copyBits(from, ptr, count, to)
   }
 
   /**
@@ -509,167 +828,6 @@ export class Bitstream {
     }
     buf[q++] = stream[p++]
     return buf.subarray(0, q)
-  }
-
-  reallocate (size) {
-    if (this.ptr + size <= this.max) return
-    const newSize = (0xff + Math.floor((this.max + size) * 1.25)) & ~0xff
-    const newBuf = new Uint8Array((newSize + 7) >>> 3)
-    this.max = newSize
-    newBuf.set(this.buffer)
-    this.buffer = newBuf
-  }
-
-  copyBits (from, ptr, count, to) {
-    this.deemulated = from.deemulated
-    this.reallocate(count)
-    const savedFromPtr = from.ptr
-    const savedToPtr = this.ptr
-    from.ptr = ptr
-    if (typeof to === 'number') this.ptr = to
-    for (let i = 0; i < count; i++) {
-      /* TODO slow */
-      const b = from.u_1()
-      this.put_u_1(b)
-    }
-    from.ptr = savedFromPtr
-    if (typeof to === 'number') this.ptr = savedToPtr
-  }
-
-  /**
-   * put one bit
-   */
-  put_u_1 (b) {
-    if (this.ptr + 1 > this.max) throw new Error('NALUStream error: bitstream exhausted')
-    const p = (this.ptr >> 3)
-    const o = 0x07 - (this.ptr & 0x07)
-    const val = b << o
-    const mask = ~(1 << o)
-    this.buffer[p] = (this.buffer[p] & mask) | val
-    this.ptr++
-    return val
-  }
-
-  /**
-   * get one bit
-   * @returns {number}
-   */
-  u_1 () {
-    if (this.ptr + 1 > this.max)
-      throw new Error('NALUStream error: bitstream exhausted')
-    const p = (this.ptr >> 3)
-    const o = 0x07 - (this.ptr & 0x07)
-    const val = (this.buffer[p] >> o) & 0x01
-    this.ptr++
-    return val
-  }
-
-  /**
-   * get two bits
-   * @returns {number}
-   */
-  u_2 () {
-    return (this.u_1() << 1) | (this.u_1())
-  }
-
-  /**
-   * get three bits
-   * @returns {number}
-   */
-  u_3 () {
-    return (this.u_1() << 2) | (this.u_1() << 1) | (this.u_1())
-  }
-
-  /**
-   * get n bits
-   * @param n
-   * @returns {number}
-   */
-  u (n) {
-    if (this.ptr + n >= this.max) throw new Error('NALUStream error: bitstream exhausted')
-    let val = 0
-    for (let i = 0; i < n; i++) {
-      val = (val << 1) | this.u_1()
-    }
-    return val
-  }
-
-  /**
-   * get one byte (as an unsigned number)
-   * @returns {number}
-   */
-  u_8 () {
-    if (this.ptr + 8 >= this.max) throw new Error('NALUStream error: bitstream exhausted')
-    if ((this.ptr & 0x07) === 0) {
-      const val = this.buffer[(this.ptr >> 3)]
-      this.ptr += 8
-      return val
-    } else return this.u(8)
-  }
-
-  /**
-   * get an unsigned H.264-style variable-bit number
-   * in exponential Golomb format
-   * @returns {number}
-   */
-  ue_v () {
-    let zeros = 0
-    while (!this.u_1()) zeros++
-    let val = 1 << zeros
-    for (let i = zeros - 1; i >= 0; i--) {
-      val |= (this.u_1() << i)
-    }
-    return val - 1
-  }
-
-  put_u (val, count) {
-    this.reallocate(count)
-    if (count === 0) return
-    while (count > 0) {
-      count--
-      this.put_u_1((val >> count) & 0x01)
-    }
-  }
-
-  /**
-   * Put an exponential-Golomb coded unsigned integer into the bitstream
-   * https://en.wikipedia.org/wiki/Exponential-Golomb_coding
-   * @param {number} val to insert
-   * @returns {number} count of bits inserted
-   */
-  put_ue_v (val) {
-    const v = val + 1
-    let v1 = v
-    let z = -1
-    do {
-      z++
-      v1 = v1 >> 1
-    } while (v1 !== 0)
-    this.put_u(0, z)
-    this.put_u(v, z + 1)
-    return z + z + 1
-  }
-
-  /**
-   * get a signed h.264-style variable bit number
-   * in exponential Golomb format
-   * @returns {number} (without negative zeros)
-   */
-  se_v () {
-    const codeword = this.ue_v()
-    const result = codeword & 0x01 ? 1 + (codeword >> 1) : -(codeword >> 1)
-    return (result === 0) ? 0 : result
-  }
-
-  /**
-   * Put an exponential-Golomb coded signed integer into the bitstream
-   * https://en.wikipedia.org/wiki/Exponential-Golomb_coding#Extension_to_negative_numbers
-   * @param {number} val to insert
-   * @returns {number} count of bits inserted
-   */
-  put_se_v (val) {
-    const cw = (val <= 0) ? (-val) << 1 : (val << 1) -1
-    return this.put_ue_v(cw)
   }
 }
 

@@ -109,9 +109,10 @@ dest.put_u_1(0)           /* another bit */
 const threebits = 6  
 dest.put_u(threebits, 3)  /* three bits from a number */
 const val = 7
-const bitcount = dest.put_ue_v(val)  /* exponential Golomb coded value, unsigned */
-const bitcount = dest.put_se_v(-val) /* exponential Golomb coded value, signed */
+let bitcount = dest.put_ue_v(val)/* exponential Golomb coded value, unsigned */
+bitcount = dest.put_se_v(-val)   /* exponential Golomb coded value, signed */
 
+bitccount = dest.put_complete()  /* done writing to Bitstream, tie it off */
 ```
 
 You may copy bits from some other stream into the stream with `copyBits()`:
@@ -124,6 +125,9 @@ const startAtBit = 0
 const copyBitCount = source.remaining
 dest.copyBits(source, startAtBit, copyBitCount)
 ```
+
+`copyBits()` is written to be reasonably efficient even for randomly
+bit-aligned copies.
 
 #### NALUStream
 

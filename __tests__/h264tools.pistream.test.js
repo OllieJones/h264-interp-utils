@@ -69,8 +69,7 @@ test('parse raspivid --inline --spstimings look at slices', () => {
         ppsDecoded = item
         break
       case 1: /* non-I-frame slice */
-      case 5: /* I-frame slice */
-        item = new Slice(naluBitstream, avcC)
+      case 5: /* I-frame slice */item = new Slice(naluBitstream, avcC)
         expect(item.nal_unit_type).toEqual(naluType)
         expect(item.first_mb_in_slice).toBeDefined()
         expect(item.frame_num).toBeDefined()
