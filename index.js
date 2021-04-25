@@ -520,47 +520,45 @@ export class RawBitstream {
     } else {
       /* unaligned source, retrieve it with masks and shifts */
       const rshift = 8 - lshift
-      const rmask = (0xff << rshift) & 0xff
-      const lmask = (~rmask) & 0xff
+      const mask = (0xff << rshift) & 0xff
       let p = (from.ptr >> 3) + 1
-      let lside = frombuf[p - 1]
-      let rside = frombuf[p]
+      let v1 = frombuf[p - 1]
+      let v2 = frombuf[p]
 
       /* 8-way loop unroll.
        * This is a hot path when changing pic_parameter_set_ids in Slices. */
       let n = byteLen & 0x07
       while (n-- > 0) {
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
+        thisbuf[q++] = ((v1 & ~mask) << lshift) | ((v2 & mask) >> rshift)
+        v1 = v2
+        v2 = frombuf[++p]
       }
       n = byteLen >> 3
       while (n-- > 0) {
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
+        /* flip back and forth between v1 and v2 */
+        thisbuf[q++] = ((v1 & ~mask) << lshift) | ((v2 & mask) >> rshift)
+        v1 = frombuf[++p]
 
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
-        thisbuf[q++] = ((lside & lmask) << lshift) | ((rside & rmask) >> rshift)
-        lside = rside
-        rside = frombuf[++p]
+        thisbuf[q++] = ((v2 & ~mask) << lshift) | ((v1 & mask) >> rshift)
+        v2 = frombuf[++p]
+
+        thisbuf[q++] = ((v1 & ~mask) << lshift) | ((v2 & mask) >> rshift)
+        v1 = frombuf[++p]
+
+        thisbuf[q++] = ((v2 & ~mask) << lshift) | ((v1 & mask) >> rshift)
+        v2 = frombuf[++p]
+
+        thisbuf[q++] = ((v1 & ~mask) << lshift) | ((v2 & mask) >> rshift)
+        v1 = frombuf[++p]
+
+        thisbuf[q++] = ((v2 & ~mask) << lshift) | ((v1 & mask) >> rshift)
+        v2 = frombuf[++p]
+
+        thisbuf[q++] = ((v1 & ~mask) << lshift) | ((v2 & mask) >> rshift)
+        v1 = frombuf[++p]
+
+        thisbuf[q++] = ((v2 & ~mask) << lshift) | ((v1 & mask) >> rshift)
+        v2 = frombuf[++p]
       }
     }
     from.ptr += byteCopyLen
